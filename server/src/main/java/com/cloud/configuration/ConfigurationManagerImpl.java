@@ -3861,6 +3861,7 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
         String storageTags = cmd.getStorageTags();
         String hostTags = cmd.getHostTags();
         ServiceOffering.State state = cmd.getState();
+        final Boolean offerHa = cmd.getOfferHa();
         boolean purgeResources = cmd.isPurgeResources();
         final Map<String, String> externalDetails = cmd.getExternalDetails();
         final boolean cleanupExternalDetails = cmd.isCleanupExternalDetails();
@@ -3944,7 +3945,7 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
             List<Long> nonChildDomains = new ArrayList<>();
             for (Long domainId : existingDomainIds) {
                 if (!_domainDao.isChildDomain(account.getDomainId(), domainId)) {
-                    if (name != null || displayText != null || sortKey != null) { // Domain-admins cannot update name, display text, sort key for offerings with domain which are not child domains for domain-admin
+                    if (name != null || displayText != null || sortKey != null || offerHa != null) { // Domain-admins cannot update name, display text, sort key or HA for offerings with domain which are not child domains for domain-admin
                         throw new InvalidParameterValueException(String.format("Unable to update service offering: %s as it has linked domain(s) which are not child domain for domain-admin: %s", offeringHandle, user));
                     }
                     nonChildDomains.add(domainId);
@@ -3961,7 +3962,8 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
             throw new InvalidParameterValueException(String.format("Unable to update service offering: %s by id user: %s because it is not root-admin or domain-admin", offeringHandle, user));
         }
 
-        final boolean updateNeeded = name != null || displayText != null || sortKey != null || storageTags != null || hostTags != null || state != null;
+        final boolean updateNeeded = name != null || displayText != null || sortKey != null || storageTags != null || hostTags != null || state != null
+                || offerHa != null;
         final boolean serviceOfferingExternalDetailsNeedUpdate =
                 serviceOfferingExternalDetailsNeedUpdate(offeringDetails, externalDetails, cleanupExternalDetails);
         final boolean detailsUpdateNeeded = !filteredDomainIds.equals(existingDomainIds) ||
@@ -3987,6 +3989,10 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
 
         if (state != null) {
             offering.setState(state);
+        }
+
+        if (offerHa != null) {
+            offering.setOfferHA(offerHa);
         }
 
         DiskOfferingVO diskOffering = _diskOfferingDao.findById(offeringHandle.getDiskOfferingId());

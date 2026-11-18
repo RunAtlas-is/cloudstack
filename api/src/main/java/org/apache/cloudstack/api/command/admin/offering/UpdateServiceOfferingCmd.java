@@ -96,6 +96,11 @@ public class UpdateServiceOfferingCmd extends BaseCmd {
             since="4.20")
     private Boolean purgeResources;
 
+    @Parameter(name = ApiConstants.OFFER_HA, type = CommandType.BOOLEAN,
+            description = "Whether the service offering offers HA. Instances already deployed from it keep their own HA setting, "
+                    + "which updateVirtualMachine changes with haenable")
+    private Boolean offerHa;
+
     @Parameter(name = ApiConstants.EXTERNAL_DETAILS,
             type = CommandType.MAP,
             description = "Details in key/value pairs using format externaldetails[i].keyname=keyvalue. Example: externaldetails[0].endpoint.url=urlvalue",
@@ -204,6 +209,10 @@ public class UpdateServiceOfferingCmd extends BaseCmd {
             throw new InvalidParameterValueException("Invalid state value: " + serviceOfferingState);
         }
         return state;
+    }
+
+    public Boolean getOfferHa() {
+        return offerHa;
     }
 
     public boolean isPurgeResources() {
