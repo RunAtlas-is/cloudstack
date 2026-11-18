@@ -1954,4 +1954,94 @@ public class VirtualMachineManagerImplTest {
         }
     }
 
+
+    private void setHaVmRestartOnGuestShutdown(boolean restart) throws ReflectiveOperationException {
+        Field defaultValue = ConfigKey.class.getDeclaredField("_defaultValue");
+        defaultValue.setAccessible(true);
+        defaultValue.set(VirtualMachineManagerImpl.HaVmRestartOnGuestShutdown, String.valueOf(restart));
+    }
+
+    private VMInstanceVO runningHaVm() {
+        VMInstanceVO vm = mock(VMInstanceVO.class);
+        when(vm.isHaEnabled()).thenReturn(true);
+        when(vm.getState()).thenReturn(VirtualMachine.State.Running);
+        when(vm.getHypervisorType()).thenReturn(HypervisorType.KVM);
+        return vm;
+    }
+
+    @Test
+    public void testGuestShutdownIsRecordedForARunningVmOnTheReportingHost() {
+        VMInstanceVO vm = mock(VMInstanceVO.class);
+        when(vm.getId()).thenReturn(10L);
+        when(vm.getState()).thenReturn(VirtualMachine.State.Running);
+        when(vm.getHostId()).thenReturn(hostMockId);
+        when(vmInstanceDaoMock.findVMByInstanceName("i-2-10-VM")).thenReturn(vm);
+
+        Map<String, String> reasons = new HashMap<>();
+        reasons.put("i-2-10-VM", "SHUTDOWN");
+        reasons.put("i-2-11-VM", "FAILED");
+        virtualMachineManagerImpl.recordGuestShutdowns(hostMockId, reasons);
+
+        verify(vmInstanceDetailsDao).addDetail(10L, VirtualMachineManagerImpl.GUEST_SHUTDOWN_REPORTED_DETAIL, "true", false);
+        verify(vmInstanceDaoMock, never()).findVMByInstanceName("i-2-11-VM");
+    }
+
+    @Test
+    public void testGuestShutdownIsNotRecordedForAVmOnAnotherHost() {
+        VMInstanceVO vm = mock(VMInstanceVO.class);
+        when(vm.getState()).thenReturn(VirtualMachine.State.Running);
+        when(vm.getHostId()).thenReturn(hostMockId + 1);
+        when(vmInstanceDaoMock.findVMByInstanceName("i-2-10-VM")).thenReturn(vm);
+
+        virtualMachineManagerImpl.recordGuestShutdowns(hostMockId, Collections.singletonMap("i-2-10-VM", "SHUTDOWN"));
+
+        verify(vmInstanceDetailsDao, never()).addDetail(anyLong(), anyString(), anyString(), Mockito.anyBoolean());
+    }
+
+    @Test
+    public void testGuestShutdownReportIsTakenOnce() {
+        when(vmInstanceDetailsDao.findDetail(vmInstanceVoMockId, VirtualMachineManagerImpl.GUEST_SHUTDOWN_REPORTED_DETAIL))
+                .thenReturn(mock(VMInstanceDetailVO.class));
+
+        assertTrue(virtualMachineManagerImpl.takeGuestShutdownReport(vmInstanceMock));
+        verify(vmInstanceDetailsDao).removeDetail(vmInstanceVoMockId, VirtualMachineManagerImpl.GUEST_SHUTDOWN_REPORTED_DETAIL);
+    }
+
+    @Test
+    public void testNoGuestShutdownReport() {
+        assertFalse(virtualMachineManagerImpl.takeGuestShutdownReport(vmInstanceMock));
+        verify(vmInstanceDetailsDao, never()).removeDetail(anyLong(), anyString());
+    }
+
+    @Test
+    public void testHaVmIsRestartedAfterAnOutOfBandStopThatIsNotAGuestShutdown() {
+        assertTrue(virtualMachineManagerImpl.isRestartedAfterOutOfBandStop(runningHaVm(), false));
+    }
+
+    @Test
+    public void testHaVmIsRestartedAfterAGuestShutdownByDefault() {
+        VMInstanceVO vm = runningHaVm();
+        when(vm.getDataCenterId()).thenReturn(zoneMockId);
+        assertTrue(virtualMachineManagerImpl.isRestartedAfterOutOfBandStop(vm, true));
+    }
+
+    @Test
+    public void testHaVmIsNotRestartedAfterAGuestShutdownWhenTheSettingIsOff() throws ReflectiveOperationException {
+        VMInstanceVO vm = runningHaVm();
+        when(vm.getDataCenterId()).thenReturn(zoneMockId);
+        setHaVmRestartOnGuestShutdown(false);
+        try {
+            assertFalse(virtualMachineManagerImpl.isRestartedAfterOutOfBandStop(vm, true));
+            assertTrue(virtualMachineManagerImpl.isRestartedAfterOutOfBandStop(vm, false));
+        } finally {
+            setHaVmRestartOnGuestShutdown(true);
+        }
+    }
+
+    @Test
+    public void testVmWithoutHaIsNotRestartedAfterAnOutOfBandStop() {
+        VMInstanceVO vm = mock(VMInstanceVO.class);
+        when(vm.isHaEnabled()).thenReturn(false);
+        assertFalse(virtualMachineManagerImpl.isRestartedAfterOutOfBandStop(vm, false));
+    }
 }
