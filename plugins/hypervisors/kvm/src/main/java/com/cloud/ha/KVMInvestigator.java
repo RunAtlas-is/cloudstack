@@ -24,6 +24,7 @@ import com.cloud.host.Status;
 import com.cloud.host.dao.HostDao;
 import com.cloud.hypervisor.Hypervisor;
 import com.cloud.resource.ResourceManager;
+import com.cloud.storage.Storage;
 import com.cloud.utils.component.AdapterBase;
 
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreDriver;
@@ -83,10 +84,10 @@ public class KVMInvestigator extends AdapterBase implements Investigator {
         }
 
         List<StoragePoolVO> clusterPools = _storagePoolDao.findPoolsInClusters(Collections.singletonList(host.getClusterId()), null);
-        boolean storageSupportsHA = storageSupportsHA(clusterPools);
+        boolean storageSupportsHA = storageSupportsHA(clusterPools, host.getDataCenterId());
         if (!storageSupportsHA) {
             List<StoragePoolVO> zonePools = _storagePoolDao.findZoneWideStoragePoolsByHypervisor(host.getDataCenterId(), host.getHypervisorType());
-            storageSupportsHA = storageSupportsHA(zonePools);
+            storageSupportsHA = storageSupportsHA(zonePools, host.getDataCenterId());
         }
         if (!storageSupportsHA) {
             logger.warn("Agent investigation was requested on host {}, but host does not support investigation" +
@@ -97,8 +98,12 @@ public class KVMInvestigator extends AdapterBase implements Investigator {
         return hostActivityChecker.getHostAgentStatus(host);
     }
 
-    private boolean storageSupportsHA(List<StoragePoolVO> pools) {
+    private boolean storageSupportsHA(List<StoragePoolVO> pools, long zoneId) {
+        boolean rbdHeartbeatUsable = HighAvailabilityManager.KvmHaRbdHeartbeatWithoutHostHa.valueIn(zoneId);
         for (StoragePoolVO pool : pools) {
+            if (pool.getPoolType() == Storage.StoragePoolType.RBD && !rbdHeartbeatUsable) {
+                continue;
+            }
             DataStoreProvider storeProvider = dataStoreProviderMgr.getDataStoreProvider(pool.getStorageProviderName());
             DataStoreDriver storeDriver = storeProvider.getDataStoreDriver();
             if (storeDriver instanceof PrimaryDataStoreDriver) {

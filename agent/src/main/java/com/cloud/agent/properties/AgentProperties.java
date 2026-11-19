@@ -591,12 +591,13 @@ public class AgentProperties{
     public static final Property<Integer> VM_MIGRATE_DOMAIN_RETRIEVE_TIMEOUT = new Property<>("vm.migrate.domain.retrieve.timeout", 10);
 
     /**
-     * This parameter specifies if the host must be rebooted when something goes wrong with the heartbeat.<br>
+     * This parameter specifies if the host must be rebooted when something goes wrong with the heartbeat.
+     * A storage outage that every host sees then reboots every host, so it is off unless set.<br>
      * Data type: Boolean.<br>
-     * Default value: <code>true</code>
+     * Default value: <code>false</code>
      */
     public static final Property<Boolean> REBOOT_HOST_AND_ALERT_MANAGEMENT_ON_HEARTBEAT_TIMEOUT
-        = new Property<>("reboot.host.and.alert.management.on.heartbeat.timeout", true);
+        = new Property<>("reboot.host.and.alert.management.on.heartbeat.timeout", false);
 
     /**
      * Enables manually setting CPU's topology on KVM's VM. <br>

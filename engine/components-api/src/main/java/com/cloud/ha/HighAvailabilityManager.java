@@ -79,6 +79,11 @@ public interface HighAvailabilityManager extends Manager {
     ConfigKey<Boolean> KvmHAFenceHostIfHeartbeatFailsOnStorage = new ConfigKey<>("Advanced", Boolean.class, "kvm.ha.fence.on.storage.heartbeat.failure", "false",
             "Proceed fencing the host even the heartbeat failed for only one storage pool", false, ConfigKey.Scope.Zone);
 
+    ConfigKey<Boolean> KvmHaRbdHeartbeatWithoutHostHa = new ConfigKey<>("Advanced", Boolean.class, "kvm.ha.rbd.heartbeat.without.host.ha", "false",
+            "Whether VM HA may use the heartbeat on Ceph RBD primary storage to find a KVM host down and to fence it when Host HA is not enabled on the host. "
+            + "A host whose agent stopped has a stale heartbeat while its VMs keep running, so with this enabled such a VM can also be started on another host. "
+            + "Host HA checks the RBD watchers of the host's volumes instead and does not use this setting.", true, ConfigKey.Scope.Zone);
+
     enum WorkType {
         Migration,  // Migrating VMs off of a host.
         Stop,       // Stops a VM for storage pool migration purposes.  This should be obsolete now.

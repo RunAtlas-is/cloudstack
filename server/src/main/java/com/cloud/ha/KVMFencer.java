@@ -16,12 +16,17 @@
 // under the License.
 package com.cloud.ha;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
+import org.apache.cloudstack.ha.HAManager;
+import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
+import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 
 import com.cloud.agent.AgentManager;
 import com.cloud.alert.AlertManager;
@@ -35,6 +40,7 @@ import com.cloud.host.Status;
 import com.cloud.host.dao.HostDao;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.resource.ResourceManager;
+import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.utils.component.AdapterBase;
 import com.cloud.vm.VirtualMachine;
 
@@ -48,6 +54,10 @@ public class KVMFencer extends AdapterBase implements FenceBuilder {
     AlertManager _alertMgr;
     @Inject
     ResourceManager _resourceMgr;
+    @Inject
+    HAManager haManager;
+    @Inject
+    PrimaryDataStoreDao storagePoolDao;
 
     @Override
     public boolean configure(String name, Map<String, Object> params) throws ConfigurationException {
@@ -75,6 +85,12 @@ public class KVMFencer extends AdapterBase implements FenceBuilder {
     public Boolean fenceOff(VirtualMachine vm, Host host) {
         if (host.getHypervisorType() != HypervisorType.KVM && host.getHypervisorType() != HypervisorType.LXC) {
             logger.warn("Don't know how to fence non kvm hosts {}", host.getHypervisorType());
+            return null;
+        }
+
+        if (!canFenceByHeartbeat(host)) {
+            logger.warn("Not fencing off {}: Host HA is not enabled on it and its only heartbeat storage is Ceph RBD, which {} keeps out of VM HA",
+                    host, HighAvailabilityManager.KvmHaRbdHeartbeatWithoutHostHa.key());
             return null;
         }
 
@@ -115,5 +131,20 @@ public class KVMFencer extends AdapterBase implements FenceBuilder {
         logger.error("Unable to fence off {} on {}", vm.toString(), host.toString());
 
         return false;
+    }
+
+    /**
+     * Without Host HA, the neighbours fence a host by its storage heartbeat alone. On Ceph RBD a host whose agent stopped
+     * has a stale heartbeat while its VMs keep running, so that heartbeat is used only when kvm.ha.rbd.heartbeat.without.host.ha
+     * allows it, or when the host also has a heartbeat on another storage type.
+     */
+    protected boolean canFenceByHeartbeat(Host host) {
+        if (HighAvailabilityManager.KvmHaRbdHeartbeatWithoutHostHa.valueIn(host.getDataCenterId()) || haManager.isHAEligible(host)) {
+            return true;
+        }
+        List<StoragePoolVO> pools = new ArrayList<>(storagePoolDao.findPoolsInClusters(Collections.singletonList(host.getClusterId()), null));
+        pools.addAll(storagePoolDao.findZoneWideStoragePoolsByHypervisor(host.getDataCenterId(), host.getHypervisorType()));
+        return pools.stream().anyMatch(pool -> pool.getPoolType() != StoragePoolType.RBD
+                && HighAvailabilityManager.LIBVIRT_STORAGE_POOL_TYPES_WITH_HA_SUPPORT.contains(pool.getPoolType()));
     }
 }
