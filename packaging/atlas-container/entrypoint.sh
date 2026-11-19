@@ -36,6 +36,22 @@ if [ -f "$source_dir/key" ]; then
     chmod 0640 "$conf/key"
 fi
 
+# The server keeps its ID across restarts only when it is given one: a pod
+# gets a new MAC address, from which the ID is otherwise derived. A
+# StatefulSet sets MANAGEMENT_SERVER_ID_BASE, and each pod adds the ordinal at
+# the end of its host name; MANAGEMENT_SERVER_ID sets the ID outright.
+if [ -z "${MANAGEMENT_SERVER_ID:-}" ] && [ -n "${MANAGEMENT_SERVER_ID_BASE:-}" ]; then
+    host_name=$(hostname)
+    ordinal=${host_name##*-}
+    case "$ordinal" in
+        ''|*[!0-9]*) echo "host name $host_name ends in no StatefulSet ordinal" >&2; exit 1 ;;
+    esac
+    MANAGEMENT_SERVER_ID=$((MANAGEMENT_SERVER_ID_BASE + ordinal))
+fi
+if [ -n "${MANAGEMENT_SERVER_ID:-}" ]; then
+    JAVA_EXTRA_OPTS="${JAVA_EXTRA_OPTS:-} -Dmanagement.server.id=${MANAGEMENT_SERVER_ID}"
+fi
+
 # shellcheck source=/dev/null
 . /etc/default/cloudstack-management
 # shellcheck disable=SC2086
