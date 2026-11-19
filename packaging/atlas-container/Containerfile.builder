@@ -22,6 +22,10 @@
 FROM docker.io/library/ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8
 
 ARG DEBIAN_FRONTEND=noninteractive
+
+# Ubuntu's own archive hosts have timed out from build hosts, so packages
+# come from the kernel.org mirror, which carries the same signed archive.
+RUN sed -i -e "s#http://archive.ubuntu.com/ubuntu#http://mirrors.edge.kernel.org/ubuntu#g" -e "s#http://security.ubuntu.com/ubuntu#http://mirrors.edge.kernel.org/ubuntu#g" /etc/apt/sources.list.d/ubuntu.sources
 # npm comes with Node.js from its own release archive, which goes first on the
 # path: Ubuntu's npm package pulls in several hundred small packages, which
 # made the install the slowest part of a build. Ubuntu's nodejs stays, because
