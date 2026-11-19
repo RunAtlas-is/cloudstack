@@ -1,0 +1,109 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# Builds and tests the Atlas release branches, and builds the Debian packages
+# of a release tag (<cloudstack version>-atlas-<n>, for example
+# 4.22.1.1-atlas-1). The branding keeps the CloudStack version: the
+# management server reads only the part before the first hyphen.
+
+name: Atlas build
+
+on:
+  pull_request:
+    branches: ['atlas/**']
+  push:
+    tags: ['*-atlas-*']
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Package release number, used in the branding atlas-<release>'
+        required: true
+        default: '0'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Build and test the modules the carried patches touch, with their dependencies
+        run: >
+          mvn -B -T 2 install
+          -pl utils,api,core,agent,engine/components-api,engine/orchestration,server,plugins/hypervisors/kvm,plugins/hypervisors/xenserver,plugins/outofbandmanagement-drivers/ipmitool
+          -am
+
+  packages:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Choose the branding
+        id: brand
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          INPUT_RELEASE: ${{ inputs.release }}
+        run: |
+          if [ "$REF_TYPE" = tag ]; then
+            release="${REF_NAME##*-atlas-}"
+          else
+            release="$INPUT_RELEASE"
+          fi
+          case "$release" in
+            ''|*[!0-9]*) echo "release number must be digits: $release" >&2; exit 1 ;;
+          esac
+          echo "brand=atlas-$release" >> "$GITHUB_OUTPUT"
+      - name: Install the build dependencies of debian/control
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends debhelper devscripts dpkg-dev fakeroot genisoimage \
+            openjdk-17-jdk maven python3 python3-setuptools python3-mysql.connector nodejs npm lsb-release
+      - name: Build the packages
+        env:
+          BRAND: ${{ steps.brand.outputs.brand }}
+          JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+        run: |
+          mkdir -p dist
+          bash packaging/build-deb.sh --brand "$BRAND" -o "$PWD/dist"
+          cd dist && sha256sum -- *.deb > SHA256SUMS && cat SHA256SUMS
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: 'dist/*.deb'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: debs-${{ steps.brand.outputs.brand }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 90
