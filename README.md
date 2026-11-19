@@ -17,6 +17,29 @@
  under the License.
  -->
 
+# Atlas Cloud's fork of Apache CloudStack
+
+This repository is Atlas Cloud's public fork of Apache CloudStack. It is not
+a release of the Apache Software Foundation, and the Apache CloudStack project
+neither reviews nor supports it.
+
+Each release branch, `atlas/<version line>` (for example `atlas/4.22`), starts
+at an upstream release tag and adds a small set of commits: backports of
+upstream fixes, and fixes that are also offered upstream. The branch history
+lists every change from the upstream release. Release branches carry no
+database schema change of their own and none of upstream's unreleased ones,
+so the schema of a release is the schema of its upstream tag. `main` mirrors
+upstream and carries no change of ours.
+
+Atlas Cloud builds this fork for its own use. The source, and any package
+built from it, is provided "AS IS", without warranties or conditions of any
+kind, under the Apache License, Version 2.0 (sections 7 and 8 of the
+[License](LICENSE)). There is no support, and no commitment to answer,
+fix or release anything. Report a security issue in Apache CloudStack's own
+code to the Apache CloudStack project through its published security process.
+
+The rest of this file is upstream's README.
+
 # Apache CloudStack
 
 [![Build Status](https://github.com/apache/cloudstack/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/apache/cloudstack/actions/workflows/build.yml)
