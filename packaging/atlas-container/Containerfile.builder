@@ -33,7 +33,7 @@ RUN sed -i -e "s#http://archive.ubuntu.com/ubuntu#http://mirrors.edge.kernel.org
 ARG NODE_VERSION=18.20.8
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends debhelper devscripts dpkg-dev fakeroot genisoimage \
+    && apt-get install -y --no-install-recommends build-essential debhelper devscripts dpkg-dev fakeroot genisoimage \
        openjdk-17-jdk maven python3 python3-setuptools python3-mysql.connector nodejs lsb-release \
        git ca-certificates curl xz-utils \
     && rm -rf /var/lib/apt/lists/* \
