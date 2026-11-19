@@ -196,10 +196,12 @@ class CsAcl(CsDataBag):
                     if action == "ACCEPT":
                         action = "RETURN"
                     if rule['protocol'] == "icmp":
+                        # -m icmp as iptables-save prints it, so an existing rule compares equal
                         self.fw.append(["mangle", "front",
                                         " -A FIREWALL_%s" % self.ip +
                                         " -s %s " % cidr +
                                         " -p %s " % rule['protocol'] +
+                                        " -m icmp " +
                                         " --icmp-type %s -j %s" % (icmp_type, action)])
                     else:
                         self.fw.append(["mangle", "front",

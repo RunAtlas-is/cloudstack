@@ -346,7 +346,9 @@ class CsNetfilter(object):
         rule = str(rule.lstrip())
         rule = rule.replace('! -', '!_-')
         rule = rule.replace('-p all', '')
-        rule = rule.replace('  ', ' ')
+        # Rules built by the configure scripts carry runs of spaces; a leftover
+        # empty token would shift every option/value pair after it.
+        rule = ' '.join(rule.split())
         rule = rule.replace('bootpc', '68')
         # Ugly hack no.23 split this or else I will have an odd number of parameters
         rule = rule.replace('--checksum-fill', '--checksum fill')
