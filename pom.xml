@@ -1027,6 +1027,7 @@
                             <exclude>**/target/**</exclude>
                             <exclude>**/.vagrant</exclude>
                             <exclude>**/*.json</exclude>
+                            <exclude>**/Cargo.lock</exclude>
                             <exclude>**/.checkstyle</exclude>
                             <exclude>.java-version</exclude>
                             <exclude>.python-version</exclude>
