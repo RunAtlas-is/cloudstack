@@ -17,23 +17,28 @@
 
 # The CloudStack management server, installed from this fork's own Debian
 # packages so that the file layout stays the packages' layout. Build context:
-# a directory holding this file, entrypoint.sh and the cloudstack-common and
-# cloudstack-management packages of one build.
+# a directory holding this file, entrypoint.sh and the cloudstack-common,
+# cloudstack-management and cloudstack-ui packages of one build.
 
 FROM docker.io/library/ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-COPY cloudstack-common_*.deb cloudstack-management_*.deb /tmp/debs/
+COPY cloudstack-common_*.deb cloudstack-management_*.deb cloudstack-ui_*.deb /tmp/debs/
 
 # policy-rc.d keeps the package scripts from starting services in the build.
+# The packages do not declare everything the server runs: it creates the
+# system VM key pair with ssh-keygen and refuses to start without it, and
+# system VM template seeding fetches with wget and converts with qemu-img.
 RUN printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d \
     && chmod 0755 /usr/sbin/policy-rc.d \
     && apt-get update \
     && apt-get install -y --no-install-recommends openjdk-17-jre-headless /tmp/debs/*.deb \
+       openssh-client mysql-client-core-8.0 wget qemu-utils genisoimage iproute2 \
     && rm -rf /var/lib/apt/lists/* /tmp/debs /usr/sbin/policy-rc.d \
-    && chgrp cloud /etc/cloudstack/management \
-    && chmod 0770 /etc/cloudstack/management
+    && install -d -o cloud -g cloud /var/log/cloudstack/management /var/cache/cloudstack/management \
+       /var/lib/cloudstack/management \
+    && chown cloud:cloud /etc/cloudstack/management /etc/cloudstack/management/db.properties
 
 COPY entrypoint.sh /usr/local/bin/cloudstack-management-entrypoint
 

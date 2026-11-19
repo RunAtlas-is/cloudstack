@@ -134,7 +134,7 @@ jobs:
           version="${debs[0]##*/cloudstack-management_}"
           version="${version%%~*}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          cp dist/cloudstack-common_*.deb dist/cloudstack-management_*.deb packaging/atlas-container/
+          cp dist/cloudstack-common_*.deb dist/cloudstack-management_*.deb dist/cloudstack-ui_*.deb packaging/atlas-container/
           docker build --pull -t "$IMAGE:$version" packaging/atlas-container
       - name: Push the image
         id: push
