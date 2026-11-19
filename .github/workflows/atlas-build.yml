@@ -59,6 +59,65 @@ jobs:
           -pl utils,api,core,agent,engine/components-api,engine/orchestration,server,plugins/hypervisors/kvm,plugins/hypervisors/xenserver,plugins/outofbandmanagement-drivers/ipmitool
           -am
 
+  lifecycle-test:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: packaging/atlas-container/lifecycle
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Test the lifecycle sidecar
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal --component clippy
+          cargo +1.95.0 clippy --locked --all-targets -- -D warnings
+          cargo +1.95.0 test --locked
+
+  lifecycle-image:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      IMAGE: ghcr.io/runatlas-is/cloudstack-lifecycle
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Build the lifecycle sidecar and its image
+        id: build
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          (cd packaging/atlas-container/lifecycle && cargo +1.95.0 build --locked --release)
+          cp packaging/atlas-container/lifecycle/target/release/cloudstack-lifecycle packaging/atlas-container/
+          if [ "$REF_TYPE" = tag ]; then version="$REF_NAME"; else version="dev-$RUN_NUMBER"; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          docker build --pull -t "$IMAGE:$version" -f packaging/atlas-container/Containerfile.lifecycle packaging/atlas-container
+      - name: Push the image
+        id: push
+        env:
+          VERSION: ${{ steps.build.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          docker push "$IMAGE:$VERSION"
+          digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$VERSION" | sed 's/.*@//')"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "pushed $IMAGE:$VERSION@$digest"
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
   packages:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
