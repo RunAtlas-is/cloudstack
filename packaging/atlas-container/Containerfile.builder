@@ -47,3 +47,6 @@ RUN apt-get update \
     && rm "node-v${NODE_VERSION}-linux-x64.tar.xz"
 
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+# The UI builds with webpack 4, whose MD4 hashing OpenSSL 3 in Node.js 17 and
+# later refuses unless the legacy provider is loaded (ui/README.md).
+ENV NODE_OPTIONS=--openssl-legacy-provider
