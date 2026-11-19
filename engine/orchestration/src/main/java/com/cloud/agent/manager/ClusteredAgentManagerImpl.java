@@ -493,9 +493,47 @@ public class ClusteredAgentManagerImpl extends AgentManagerImpl implements Clust
         }
     }
 
+    /**
+     * A cached peer channel only carries writes: the peer answers on a channel of
+     * its own, and nothing reads this one. When the peer process ends, its FIN (and
+     * a TLS close_notify on a clean stop) wait unread here, and the next write on
+     * the channel is lost to the reset that follows. Draining what has arrived
+     * without blocking shows whether the peer has closed the channel.
+     */
+    protected static boolean isClosedByPeer(final SocketChannel ch) {
+        if (!ch.isOpen() || !ch.isConnected()) {
+            return true;
+        }
+        if (ch.isBlocking()) {
+            return false;
+        }
+        final ByteBuffer unread = ByteBuffer.allocate(1024);
+        try {
+            int read;
+            do {
+                unread.clear();
+                read = ch.read(unread);
+            } while (read > 0);
+            return read < 0;
+        } catch (final IOException e) {
+            return true;
+        }
+    }
+
     public SocketChannel connectToPeer(final String peerName, final SocketChannel prevCh) {
         synchronized (_peers) {
-            final SocketChannel ch = _peers.get(peerName);
+            SocketChannel ch = _peers.get(peerName);
+            if (ch != null && ch != prevCh && isClosedByPeer(ch)) {
+                logger.info("Peer management server '{}' closed the cached connection, opening a new one", peerName);
+                try {
+                    ch.close();
+                } catch (final IOException e) {
+                    logger.debug("Unable to close the peer socket connection to {}: {}", peerName, e.getMessage());
+                }
+                _peers.remove(peerName);
+                _sslEngines.remove(peerName);
+                ch = null;
+            }
             SSLEngine sslEngine;
             if (prevCh != null) {
                 try {
@@ -735,11 +773,16 @@ public class ClusteredAgentManagerImpl extends AgentManagerImpl implements Clust
 
     @Override
     public void onManagementNodeJoined(final List<? extends ManagementServerHost> nodeList, final long selfNodeId) {
+        // A channel cached before the node left belongs to its previous process.
+        for (final ManagementServerHost vo : nodeList) {
+            closePeer(Long.toString(vo.getMsid()));
+        }
     }
 
     @Override
     public void onManagementNodeLeft(final List<? extends ManagementServerHost> nodeList, final long selfNodeId) {
         for (final ManagementServerHost vo : nodeList) {
+            closePeer(Long.toString(vo.getMsid()));
             logger.info("Marking hosts as disconnected on Management server {}",  vo);
             final long lastPing = (System.currentTimeMillis() >> 10) - mgmtServiceConf.getTimeout();
             _hostDao.markHostsAsDisconnected(vo.getMsid(), lastPing);
