@@ -147,7 +147,12 @@ jobs:
           esac
           echo "brand=atlas-$release" >> "$GITHUB_OUTPUT"
       - name: Install the build dependencies of debian/control
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        # The runner rebuilds the man-db index after every install unless told
+        # not to, which takes minutes for the hundreds of packages npm pulls in.
         run: |
+          sudo rm -f /var/lib/man-db/auto-update
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends debhelper devscripts dpkg-dev fakeroot genisoimage \
             openjdk-17-jdk maven python3 python3-setuptools python3-mysql.connector nodejs npm lsb-release
