@@ -29,7 +29,13 @@ import com.cloud.host.Status;
 import com.cloud.host.dao.HostDao;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.resource.ResourceManager;
+import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.vm.VirtualMachine;
+import org.apache.cloudstack.framework.config.ConfigKey;
+import org.apache.cloudstack.ha.HAManager;
+import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
+import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -39,8 +45,10 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
 
+import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 @RunWith(MockitoJUnitRunner.class)
 public class KVMFencerTest {
@@ -53,16 +61,95 @@ public class KVMFencerTest {
     AlertManager alertMgr;
     @Mock
     ResourceManager resourceManager;
+    @Mock
+    HAManager haManager;
+    @Mock
+    PrimaryDataStoreDao storagePoolDao;
 
     KVMFencer fencer;
 
     @Before
-    public void setup() {
+    public void setup() throws ReflectiveOperationException {
+        // the fencing tests below the guard tests describe fencing where the setting allows the RBD heartbeat
+        setRbdHeartbeatWithoutHostHa(true);
         fencer = new KVMFencer();
         fencer._agentMgr = agentManager;
         fencer._alertMgr = alertMgr;
         fencer._hostDao = hostDao;
         fencer._resourceMgr = resourceManager;
+        fencer.haManager = haManager;
+        fencer.storagePoolDao = storagePoolDao;
+    }
+
+    @After
+    public void restoreRbdHeartbeatSetting() throws ReflectiveOperationException {
+        setRbdHeartbeatWithoutHostHa(false);
+    }
+
+    private void setRbdHeartbeatWithoutHostHa(boolean allowed) throws ReflectiveOperationException {
+        Field defaultValue = ConfigKey.class.getDeclaredField("_defaultValue");
+        defaultValue.setAccessible(true);
+        defaultValue.set(HighAvailabilityManager.KvmHaRbdHeartbeatWithoutHostHa, String.valueOf(allowed));
+    }
+
+    private HostVO kvmHostInCluster() {
+        HostVO host = Mockito.mock(HostVO.class);
+        Mockito.when(host.getClusterId()).thenReturn(1L);
+        Mockito.when(host.getDataCenterId()).thenReturn(1L);
+        Mockito.lenient().when(host.getHypervisorType()).thenReturn(HypervisorType.KVM);
+        return host;
+    }
+
+    private StoragePoolVO pool(StoragePoolType type) {
+        StoragePoolVO pool = Mockito.mock(StoragePoolVO.class);
+        Mockito.when(pool.getPoolType()).thenReturn(type);
+        return pool;
+    }
+
+    private void poolsOfHost(List<StoragePoolVO> clusterPools) {
+        Mockito.when(storagePoolDao.findPoolsInClusters(Collections.singletonList(1L), null)).thenReturn(clusterPools);
+        Mockito.when(storagePoolDao.findZoneWideStoragePoolsByHypervisor(1L, HypervisorType.KVM)).thenReturn(Collections.emptyList());
+    }
+
+    @Test
+    public void testHeartbeatFencingIsAllowedWhenTheSettingAllowsIt() {
+        HostVO host = Mockito.mock(HostVO.class);
+        Mockito.when(host.getDataCenterId()).thenReturn(1L);
+        Assert.assertTrue(fencer.canFenceByHeartbeat(host));
+        Mockito.verifyNoInteractions(haManager, storagePoolDao);
+    }
+
+    @Test
+    public void testRbdOnlyHostWithoutHostHaIsNotFenced() throws ReflectiveOperationException {
+        setRbdHeartbeatWithoutHostHa(false);
+        HostVO host = kvmHostInCluster();
+        Mockito.when(haManager.isHAEligible(host)).thenReturn(false);
+        poolsOfHost(Collections.singletonList(pool(StoragePoolType.RBD)));
+        VirtualMachine virtualMachine = Mockito.mock(VirtualMachine.class);
+
+        Assert.assertNull(fencer.fenceOff(virtualMachine, host));
+        Mockito.verifyNoInteractions(agentManager, resourceManager, alertMgr);
+    }
+
+    @Test
+    public void testRbdOnlyHostWithHostHaCanBeFenced() throws ReflectiveOperationException {
+        setRbdHeartbeatWithoutHostHa(false);
+        HostVO host = Mockito.mock(HostVO.class);
+        Mockito.when(host.getDataCenterId()).thenReturn(1L);
+        Mockito.when(haManager.isHAEligible(host)).thenReturn(true);
+
+        Assert.assertTrue(fencer.canFenceByHeartbeat(host));
+        Mockito.verifyNoInteractions(storagePoolDao);
+    }
+
+    @Test
+    public void testHostWithAnotherHeartbeatStorageCanBeFenced() throws ReflectiveOperationException {
+        setRbdHeartbeatWithoutHostHa(false);
+        HostVO host = kvmHostInCluster();
+        Mockito.when(haManager.isHAEligible(host)).thenReturn(false);
+        poolsOfHost(Arrays.asList(pool(StoragePoolType.RBD), pool(StoragePoolType.NetworkFilesystem)));
+
+        Assert.assertTrue(fencer.canFenceByHeartbeat(host));
     }
 
     @Test
