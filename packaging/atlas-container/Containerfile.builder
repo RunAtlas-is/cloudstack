@@ -30,12 +30,13 @@ RUN sed -i -e "s#http://archive.ubuntu.com/ubuntu#http://mirrors.edge.kernel.org
 # path: Ubuntu's npm package pulls in several hundred small packages, which
 # made the install the slowest part of a build. Ubuntu's nodejs stays, because
 # debian/control names it as a build dependency; both are version 18.
+# debian/rules fetches cmk with wget, which debian/control does not declare.
 ARG NODE_VERSION=18.20.8
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential debhelper devscripts dpkg-dev fakeroot genisoimage \
        openjdk-17-jdk maven python3 python3-setuptools python3-mysql.connector nodejs lsb-release \
-       git ca-certificates curl xz-utils \
+       git ca-certificates curl wget xz-utils \
     && rm -rf /var/lib/apt/lists/* \
     && git config --system --add safe.directory '*' \
     && cd /tmp \
