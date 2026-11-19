@@ -59,14 +59,53 @@ jobs:
           -pl utils,api,core,agent,engine/components-api,engine/orchestration,server,plugins/hypervisors/kvm,plugins/hypervisors/xenserver,plugins/outofbandmanagement-drivers/ipmitool
           -am
 
-  packages:
+  builder:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.tag.outputs.image }}
+    env:
+      IMAGE: ghcr.io/runatlas-is/cloudstack-builder
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Name the builder image by its definition
+        id: tag
+        run: |
+          sum="$(sha256sum packaging/atlas-container/Containerfile.builder)"
+          echo "image=$IMAGE:${sum:0:16}" >> "$GITHUB_OUTPUT"
+      - name: Build and push the builder image unless that definition is already pushed
+        env:
+          IMAGE_REF: ${{ steps.tag.outputs.image }}
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          if docker manifest inspect "$IMAGE_REF" >/dev/null 2>&1; then
+            echo "already pushed: $IMAGE_REF"
+            exit 0
+          fi
+          docker build --pull -t "$IMAGE_REF" -f packaging/atlas-container/Containerfile.builder packaging/atlas-container
+          docker push "$IMAGE_REF"
+
+  packages:
+    if: github.event_name != 'pull_request'
+    needs: builder
+    runs-on: ubuntu-24.04
     timeout-minutes: 240
+    container:
+      image: ${{ needs.builder.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
     outputs:
       artifact: debs-${{ steps.brand.outputs.brand }}
     permissions:
       contents: read
+      packages: read
       id-token: write
       attestations: write
     steps:
@@ -87,20 +126,16 @@ jobs:
             ''|*[!0-9]*) echo "release number must be digits: $release" >&2; exit 1 ;;
           esac
           echo "brand=atlas-$release" >> "$GITHUB_OUTPUT"
-      - name: Install the build dependencies of debian/control
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        # The runner rebuilds the man-db index after every install unless told
-        # not to, which takes minutes for the hundreds of packages npm pulls in.
-        run: |
-          sudo rm -f /var/lib/man-db/auto-update
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends debhelper devscripts dpkg-dev fakeroot genisoimage \
-            openjdk-17-jdk maven python3 python3-setuptools python3-mysql.connector nodejs npm lsb-release
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            /github/home/.m2/repository
+            /github/home/.npm
+          key: package-deps-${{ hashFiles('**/pom.xml', 'ui/package-lock.json') }}
+          restore-keys: package-deps-
       - name: Build the packages
         env:
           BRAND: ${{ steps.brand.outputs.brand }}
-          JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
         run: |
           mkdir -p dist
           bash packaging/build-deb.sh --brand "$BRAND" -o "$PWD/dist"
