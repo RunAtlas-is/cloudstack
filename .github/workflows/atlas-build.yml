@@ -16,8 +16,8 @@
 # under the License.
 
 # Builds and tests the Atlas release branches, and builds the Debian packages
-# of a release tag (<cloudstack version>-atlas-<n>, for example
-# 4.22.1.1-atlas-1). The branding keeps the CloudStack version: the
+# and the management server image of a release tag
+# (<cloudstack version>-atlas-<n>, for example 4.22.1.1-atlas-1). The branding keeps the CloudStack version: the
 # management server reads only the part before the first hyphen.
 
 name: Atlas build
@@ -63,6 +63,8 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 240
+    outputs:
+      artifact: debs-${{ steps.brand.outputs.brand }}
     permissions:
       contents: read
       id-token: write
@@ -107,3 +109,47 @@ jobs:
           path: dist/
           if-no-files-found: error
           retention-days: 90
+
+  image:
+    needs: packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      IMAGE: ghcr.io/runatlas-is/cloudstack-management
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.packages.outputs.artifact }}
+          path: dist
+      - name: Build the management server image from the packages
+        id: build
+        run: |
+          debs=(dist/cloudstack-management_*.deb)
+          version="${debs[0]##*/cloudstack-management_}"
+          version="${version%%~*}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          cp dist/cloudstack-common_*.deb dist/cloudstack-management_*.deb packaging/atlas-container/
+          docker build --pull -t "$IMAGE:$version" packaging/atlas-container
+      - name: Push the image
+        id: push
+        env:
+          VERSION: ${{ steps.build.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          docker push "$IMAGE:$VERSION"
+          digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$VERSION" | sed 's/.*@//')"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "pushed $IMAGE:$VERSION@$digest"
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
