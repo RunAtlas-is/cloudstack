@@ -22,12 +22,23 @@
 FROM docker.io/library/ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8
 
 ARG DEBIAN_FRONTEND=noninteractive
+# npm comes with Node.js from its own release archive, which goes first on the
+# path: Ubuntu's npm package pulls in several hundred small packages, which
+# made the install the slowest part of a build. Ubuntu's nodejs stays, because
+# debian/control names it as a build dependency; both are version 18.
+ARG NODE_VERSION=18.20.8
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends debhelper devscripts dpkg-dev fakeroot genisoimage \
-       openjdk-17-jdk maven python3 python3-setuptools python3-mysql.connector nodejs npm lsb-release \
-       git ca-certificates \
+       openjdk-17-jdk maven python3 python3-setuptools python3-mysql.connector nodejs lsb-release \
+       git ca-certificates curl xz-utils \
     && rm -rf /var/lib/apt/lists/* \
-    && git config --system --add safe.directory '*'
+    && git config --system --add safe.directory '*' \
+    && cd /tmp \
+    && curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+    && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" \
+       | grep " node-v${NODE_VERSION}-linux-x64.tar.xz\$" | sha256sum -c - \
+    && tar -xJf "node-v${NODE_VERSION}-linux-x64.tar.xz" -C /usr/local --strip-components=1 \
+    && rm "node-v${NODE_VERSION}-linux-x64.tar.xz"
 
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
