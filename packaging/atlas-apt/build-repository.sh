@@ -75,15 +75,15 @@ cp "$debs"/*.deb "$repo/pool/main/"
 )
 
 printf '%s\n' "$APT_SIGNING_PRIVATE_KEY" | gpg --batch --quiet --import
-signing_fpr="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
-release_fpr="$(gpg --batch --with-colons --show-keys "$release_key" | awk -F: '$1 == "fpr" { print $10; exit }')"
-if [ "$signing_fpr" != "$release_fpr" ]; then
-  echo "the signing key $signing_fpr is not the release key $release_fpr" >&2
+signing_fingerprint="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 ~ /^fp/ { print $10; exit }')"
+release_fingerprint="$(gpg --batch --with-colons --show-keys "$release_key" | awk -F: '$1 ~ /^fp/ { print $10; exit }')"
+if [ "$signing_fingerprint" != "$release_fingerprint" ]; then
+  echo "the signing key $signing_fingerprint is not the release key $release_fingerprint" >&2
   exit 1
 fi
-gpg --batch --yes --local-user "$signing_fpr" --clearsign \
+gpg --batch --yes --local-user "$signing_fingerprint" --clearsign \
   --output "$repo/dists/$suite/InRelease" "$repo/dists/$suite/Release"
-gpg --batch --yes --local-user "$signing_fpr" --armor --detach-sign \
+gpg --batch --yes --local-user "$signing_fingerprint" --armor --detach-sign \
   --output "$repo/dists/$suite/Release.gpg" "$repo/dists/$suite/Release"
 
 gpg --batch --dearmor < "$release_key" > "$work/release.gpg"
@@ -96,5 +96,5 @@ tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 \
 gpg --batch --yes --trust-model always --recipient-file "$transport_key" \
   --output "$out/apt-repository-$release.tar.gpg" --encrypt "$work/repository.tar"
 (cd "$out" && sha256sum -- "apt-repository-$release.tar.gpg" > SHA256SUMS && cat SHA256SUMS)
-echo "signed by $signing_fpr; packages:"
+echo "signed by $signing_fingerprint; packages:"
 awk '/^Package:/ { p = $2 } /^Version:/ { print p, $2 }' "$repo/dists/$suite/main/binary-amd64/Packages"
