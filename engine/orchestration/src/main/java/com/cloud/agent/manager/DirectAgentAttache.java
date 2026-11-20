@@ -215,7 +215,7 @@ public class DirectAgentAttache extends AgentAttache {
                 Response resp = new Response(_req, answers.toArray(new Answer[answers.size()]));
                 processAnswers(seq, resp);
             } catch (Exception e) {
-                logger.warn(LOG_SEQ_FORMATTED_STRING, seq, "Exception caught in bailout ", e);
+                logger.warn(logSeqFormattedString, seq, "Exception caught in bailout ", e);
             }
         }
 
@@ -235,7 +235,7 @@ public class DirectAgentAttache extends AgentAttache {
                 Command[] cmds = _req.getCommands();
                 boolean stopOnError = _req.stopOnError();
 
-                logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Executing request");
+                logger.debug(logSeqFormattedString, seq, "Executing request");
                 ArrayList<Answer> answers = new ArrayList<Answer>(cmds.length);
                 for (int i = 0; i < cmds.length; i++) {
                     Answer answer = null;
@@ -254,24 +254,24 @@ public class DirectAgentAttache extends AgentAttache {
                             answer = new Answer(cmds[i], false, "Agent is disconnected");
                         }
                     } catch (Exception e) {
-                        logger.warn(LOG_SEQ_FORMATTED_STRING, seq, "Exception Caught while executing command", e);
+                        logger.warn(logSeqFormattedString, seq, "Exception Caught while executing command", e);
                         answer = new Answer(cmds[i], false, e.toString());
                     }
                     answers.add(answer);
                     if (!answer.getResult() && stopOnError) {
                         if (i < cmds.length - 1 && logger.isDebugEnabled()) {
-                            logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Cancelling because one of the answers is false and it is stop on error.");
+                            logger.debug(logSeqFormattedString, seq, "Cancelling because one of the answers is false and it is stop on error.");
                         }
                         break;
                     }
                 }
 
                 Response resp = new Response(_req, answers.toArray(new Answer[answers.size()]));
-                logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Response Received: ");
+                logger.debug(logSeqFormattedString, seq, "Response Received: ");
 
                 processAnswers(seq, resp);
             } catch (Exception e) {
-                logger.warn(LOG_SEQ_FORMATTED_STRING, seq, "Exception caught ", e);
+                logger.warn(logSeqFormattedString, seq, "Exception caught ", e);
             } finally {
                 _outstandingCronTaskCount.decrementAndGet();
             }
@@ -293,7 +293,7 @@ public class DirectAgentAttache extends AgentAttache {
                 Command[] cmds = _req.getCommands();
                 boolean stopOnError = _req.stopOnError();
 
-                logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Executing request");
+                logger.debug(logSeqFormattedString, seq, "Executing request");
                 ArrayList<Answer> answers = new ArrayList<Answer>(cmds.length);
                 for (int i = 0; i < cmds.length; i++) {
                     Answer answer = null;
@@ -313,25 +313,25 @@ public class DirectAgentAttache extends AgentAttache {
                         }
                     } catch (Throwable t) {
                         // Catch Throwable as all exceptions will otherwise be eaten by the executor framework
-                        logger.warn(LOG_SEQ_FORMATTED_STRING, seq, "Throwable caught while executing command", t);
+                        logger.warn(logSeqFormattedString, seq, "Throwable caught while executing command", t);
                         answer = new Answer(cmds[i], false, t.toString());
                     }
                     answers.add(answer);
                     if (!answer.getResult() && stopOnError) {
                         if (i < cmds.length - 1 && logger.isDebugEnabled()) {
-                            logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Cancelling because one of the answers is false and it is stop on error.");
+                            logger.debug(logSeqFormattedString, seq, "Cancelling because one of the answers is false and it is stop on error.");
                         }
                         break;
                     }
                 }
 
                 Response resp = new Response(_req, answers.toArray(new Answer[answers.size()]));
-                logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Response Received: ");
+                logger.debug(logSeqFormattedString, seq, "Response Received: ");
 
                 processAnswers(seq, resp);
             } catch (Throwable t) {
                 // This is pretty serious as processAnswers might not be called and the calling process is stuck waiting for the full timeout
-                logger.error(LOG_SEQ_FORMATTED_STRING, seq, "Throwable caught in runInContext, this will cause the management to become unpredictable", t);
+                logger.error(logSeqFormattedString, seq, "Throwable caught in runInContext, this will cause the management to become unpredictable", t);
             } finally {
                 _outstandingTaskCount.decrementAndGet();
                 scheduleFromQueue();

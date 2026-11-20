@@ -80,4 +80,14 @@ public class ConnectedAgentAttacheTest {
 
         assertFalse(agentAttache1.equals("abc"));
     }
+
+    @Test
+    public void testSeqLogLinesKeepTheirOwnHostId() throws Exception {
+        Link link = mock(Link.class);
+        ConnectedAgentAttache first = new ConnectedAgentAttache(null, 1, "uuid-1", null, Hypervisor.HypervisorType.KVM, link, false);
+        ConnectedAgentAttache second = new ConnectedAgentAttache(null, 4, "uuid-4", null, Hypervisor.HypervisorType.KVM, link, false);
+
+        assertTrue(first.logSeqFormattedString.startsWith("Seq 1-"));
+        assertTrue(second.logSeqFormattedString.startsWith("Seq 4-"));
+    }
 }

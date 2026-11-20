@@ -91,7 +91,7 @@ public class ClusteredAgentAttache extends ConnectedAgentAttache implements Rout
                 String peerName = synchronous.getPeer();
                 if (peerName != null) {
                     if (s_clusteredAgentMgr != null) {
-                        logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Forwarding to peer to cancel due to timeout");
+                        logger.debug(logSeqFormattedString, seq, "Forwarding to peer to cancel due to timeout");
                         s_clusteredAgentMgr.cancel(peerName, _id, seq, "Timed Out");
                     } else {
                         logger.error("Unable to forward cancel, ClusteredAgentAttache is not properly initialized");
@@ -106,21 +106,21 @@ public class ClusteredAgentAttache extends ConnectedAgentAttache implements Rout
 
     @Override
     public void routeToAgent(final byte[] data) throws AgentUnavailableException {
-        logger.debug(LOG_SEQ_FORMATTED_STRING, Request.getSequence(data), "Routing from " + Request.getManagementServerId(data));
+        logger.debug(logSeqFormattedString, Request.getSequence(data), "Routing from " + Request.getManagementServerId(data));
 
         if (_link == null) {
-            logger.debug(LOG_SEQ_FORMATTED_STRING, Request.getSequence(data), "Link is closed");
+            logger.debug(logSeqFormattedString, Request.getSequence(data), "Link is closed");
             throw new AgentUnavailableException("Link is closed", _id);
         }
 
         try {
             _link.send(data);
         } catch (ClosedChannelException e) {
-            logger.debug(LOG_SEQ_FORMATTED_STRING, Request.getSequence(data), "Channel is closed");
+            logger.debug(logSeqFormattedString, Request.getSequence(data), "Channel is closed");
 
             throw new AgentUnavailableException("Channel to agent is closed", _id);
         } catch (NullPointerException e) {
-            logger.debug(LOG_SEQ_FORMATTED_STRING, Request.getSequence(data), "Link is closed");
+            logger.debug(logSeqFormattedString, Request.getSequence(data), "Link is closed");
             // Note: since this block is not in synchronized.  It is possible for _link to become null.
             throw new AgentUnavailableException("Channel to agent is null", _id);
         }
@@ -141,7 +141,7 @@ public class ClusteredAgentAttache extends ConnectedAgentAttache implements Rout
 
         if (_transferMode) {
 
-            logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Holding request as the corresponding agent is in transfer mode: ");
+            logger.debug(logSeqFormattedString, seq, "Holding request as the corresponding agent is in transfer mode: ");
 
             synchronized (this) {
                 addRequestToTransfer(req);
@@ -165,7 +165,7 @@ public class ClusteredAgentAttache extends ConnectedAgentAttache implements Rout
 
                 ch = s_clusteredAgentMgr.connectToPeer(peerName, ch);
                 if (ch == null) {
-                    logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Unable to forward " + req.toString());
+                    logger.debug(logSeqFormattedString, seq, "Unable to forward " + req.toString());
                     continue;
                 }
 
@@ -176,7 +176,7 @@ public class ClusteredAgentAttache extends ConnectedAgentAttache implements Rout
 
                 try {
                     if (logger.isDebugEnabled()) {
-                        logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Forwarding " + req.toString() + " to " + peerName);
+                        logger.debug(logSeqFormattedString, seq, "Forwarding " + req.toString() + " to " + peerName);
                     }
                     if (req.executeInSequence() && listener != null && listener instanceof SynchronousListener) {
                         SynchronousListener synchronous = (SynchronousListener)listener;
@@ -187,7 +187,7 @@ public class ClusteredAgentAttache extends ConnectedAgentAttache implements Rout
                     return;
                 } catch (IOException e) {
                     if (logger.isDebugEnabled()) {
-                        logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Error on connecting to management node: " + req.toString() + " try = " + i);
+                        logger.debug(logSeqFormattedString, seq, "Error on connecting to management node: " + req.toString() + " try = " + i);
                     }
 
                     if (logger.isInfoEnabled()) {
