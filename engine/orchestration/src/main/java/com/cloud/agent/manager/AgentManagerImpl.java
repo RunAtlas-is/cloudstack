@@ -1787,7 +1787,7 @@ public class AgentManagerImpl extends ManagerBase implements AgentManager, Handl
                     final Link link = task.getLink();
                     final AgentAttache attache = (AgentAttache) link.attachment();
                     if (attache != null) {
-                        disconnectWithInvestigation(attache, Event.AgentDisconnected);
+                        disconnectClosedLink(attache);
                     } else {
                         logger.info("Connection from {} closed but no cleanup was done.", link.getIpAddress());
                         link.close();
@@ -1851,6 +1851,23 @@ public class AgentManagerImpl extends ManagerBase implements AgentManager, Handl
 
     public void disconnectWithInvestigation(final AgentAttache attache, final Status.Event event) {
         _executor.submit(new DisconnectTask(attache, event, true));
+    }
+
+    /**
+     * While this management server prepares for or is in maintenance, it has told
+     * its agents to reconnect to a peer, so an agent link closing is that move, not
+     * a lost host: investigating it marks the host Alert, or Down, which starts HA
+     * on its VMs. The link is then closed as a shutdown the agent asked for, which
+     * leaves the host Disconnected until the peer takes it; a host no peer takes
+     * still reaches Alert through the ping timeout.
+     */
+    protected void disconnectClosedLink(final AgentAttache attache) {
+        if (managementServerMaintenanceManager != null && managementServerMaintenanceManager.isPreparingForMaintenance()) {
+            logger.info("Agent {} closed its link while this management server hands its agents to a peer; not investigating", attache);
+            disconnectWithoutInvestigation(attache, Event.ShutdownRequested);
+        } else {
+            disconnectWithInvestigation(attache, Event.AgentDisconnected);
+        }
     }
 
     protected boolean isHostOwnerSwitched(final long hostId) {
