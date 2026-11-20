@@ -28,10 +28,12 @@ import com.cloud.host.Status;
 import com.cloud.host.dao.HostDao;
 import com.cloud.hypervisor.Hypervisor;
 import com.cloud.utils.Pair;
+import org.apache.cloudstack.maintenance.ManagementServerMaintenanceManager;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.ArrayList;
 
@@ -136,5 +138,51 @@ public class AgentManagerImplTest {
         Mockito.when(host.getDetail(Host.HOST_SSH_PORT)).thenReturn(String.valueOf(3922));
         int hostSshPort = mgr.getHostSshPort(host);
         Assert.assertEquals(3922, hostSshPort);
+    }
+
+    private ManagementServerMaintenanceManager maintenance(final boolean preparing) {
+        final ManagementServerMaintenanceManager maintenance = Mockito.mock(ManagementServerMaintenanceManager.class);
+        Mockito.when(maintenance.isPreparingForMaintenance()).thenReturn(preparing);
+        ReflectionTestUtils.setField(mgr, "managementServerMaintenanceManager", maintenance);
+        return maintenance;
+    }
+
+    @Test
+    public void disconnectClosedLinkInvestigatesOutsideMaintenance() {
+        maintenance(false);
+        Mockito.doNothing().when(mgr).disconnectWithInvestigation(attache, Status.Event.AgentDisconnected);
+
+        mgr.disconnectClosedLink(attache);
+
+        Mockito.verify(mgr).disconnectWithInvestigation(attache, Status.Event.AgentDisconnected);
+        Mockito.verify(mgr, Mockito.never()).disconnectWithoutInvestigation(Mockito.any(AgentAttache.class), Mockito.any(Status.Event.class));
+    }
+
+    @Test
+    public void disconnectClosedLinkDuringMaintenanceIsAShutdownWithoutInvestigation() {
+        maintenance(true);
+        Mockito.doNothing().when(mgr).disconnectWithoutInvestigation(attache, Status.Event.ShutdownRequested);
+
+        mgr.disconnectClosedLink(attache);
+
+        Mockito.verify(mgr).disconnectWithoutInvestigation(attache, Status.Event.ShutdownRequested);
+        Mockito.verify(mgr, Mockito.never()).disconnectWithInvestigation(Mockito.any(AgentAttache.class), Mockito.any(Status.Event.class));
+    }
+
+    @Test
+    public void disconnectClosedLinkInvestigatesWithoutAMaintenanceManager() {
+        ReflectionTestUtils.setField(mgr, "managementServerMaintenanceManager", null);
+        Mockito.doNothing().when(mgr).disconnectWithInvestigation(attache, Status.Event.AgentDisconnected);
+
+        mgr.disconnectClosedLink(attache);
+
+        Mockito.verify(mgr).disconnectWithInvestigation(attache, Status.Event.AgentDisconnected);
+    }
+
+    @Test
+    public void aShutdownRequestLeavesAnUpHostDisconnectedNotAlert() throws Exception {
+        Assert.assertEquals(Status.Disconnected, Status.Up.getNextStatus(Status.Event.ShutdownRequested));
+        Assert.assertEquals(Status.Alert, Status.Up.getNextStatus(Status.Event.AgentDisconnected));
+        Assert.assertEquals(Status.Connecting, Status.Disconnected.getNextStatus(Status.Event.AgentConnected));
     }
 }
