@@ -25,7 +25,13 @@ import com.cloud.host.Host;
 
 public class PingRoutingCommand extends PingCommand {
 
+    /** The reason of a stop that the guest itself initiated, such as a shutdown from inside its operating system. */
+    public static final String VM_STOP_REASON_GUEST_SHUTDOWN = "SHUTDOWN";
+
     Map<String, HostVmStateReportEntry> _hostVmStateReport;
+
+    /** The reasons the hypervisor gave for the recent stops of VMs on the host, by VM name. */
+    private Map<String, String> vmStopReasons;
 
     boolean _gatewayAccessible = true;
     boolean _vnetAccessible = true;
@@ -65,5 +71,13 @@ public class PingRoutingCommand extends PingCommand {
 
     public void setHostHealthCheckResult(Boolean hostHealthCheckResult) {
         this.hostHealthCheckResult = hostHealthCheckResult;
+    }
+
+    public Map<String, String> getVmStopReasons() {
+        return vmStopReasons;
+    }
+
+    public void setVmStopReasons(Map<String, String> vmStopReasons) {
+        this.vmStopReasons = vmStopReasons;
     }
 }

@@ -501,6 +501,13 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     static final ConfigKey<Boolean> HaVmRestartHostUp = new ConfigKey<Boolean>("Advanced", Boolean.class, "ha.vm.restart.hostup", "true",
             "If an out-of-band stop of a VM is detected and its host is up, then power on the VM", true);
 
+    static final ConfigKey<Boolean> HaVmRestartOnGuestShutdown = new ConfigKey<>("Advanced", Boolean.class, "ha.vm.restart.on.guest.shutdown", "true",
+            "If an out-of-band stop of an HA enabled VM is detected and its host reports that the guest shut itself down, then power on the VM. "
+            + "A crash, a kill or the loss of the host restarts the VM either way. KVM hosts report the reason with libvirt.events.enabled set in agent.properties.",
+            true, ConfigKey.Scope.Zone);
+
+    static final String GUEST_SHUTDOWN_REPORTED_DETAIL = "guestShutdownReported";
+
     static final ConfigKey<Long> SystemVmRootDiskSize = new ConfigKey<Long>("Advanced",
             Long.class, "systemvm.root.disk.size", "-1",
             "Size of root volume (in GB) of system VMs and virtual routers", true);
@@ -1351,6 +1358,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         final ServiceOfferingVO offering = _offeringDao.findById(vm.getId(), vm.getServiceOfferingId());
         final VirtualMachineTemplate template = _entityMgr.findByIdIncludingRemoved(VirtualMachineTemplate.class, vm.getTemplateId());
         final Ternary<VMInstanceVO, ReservationContext, ItWorkVO> start = changeToStartState(vmGuru, vm, caller, account, owner, offering, template);
+        vmInstanceDetailsDao.removeDetail(vm.getId(), GUEST_SHUTDOWN_REPORTED_DETAIL);
         if (start == null) {
             return;
         }
@@ -4333,6 +4341,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
             if (cmd instanceof PingRoutingCommand) {
                 final PingRoutingCommand ping = (PingRoutingCommand)cmd;
                 if (ping.getHostVmStateReport() != null) {
+                    recordGuestShutdowns(agentId, ping.getVmStopReasons());
                     _syncMgr.processHostVmStatePingReport(agentId, ping.getHostVmStateReport(), ping.getOutOfBand());
                 }
                 scanStalledVMInTransitionStateOnUpHost(agentId);
@@ -5301,7 +5310,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         return new ConfigKey<?>[] { ClusterDeltaSyncInterval, StartRetry, VmDestroyForcestop, VmOpCancelInterval, VmOpCleanupInterval, VmOpCleanupWait,
                 VmOpLockStateRetry, VmOpWaitInterval, ExecuteInSequence, VmJobCheckInterval, VmJobTimeout, VmJobStateReportInterval,
                 VmConfigDriveLabel, VmConfigDriveOnPrimaryPool, VmConfigDriveForceHostCacheUse, VmConfigDriveUseHostCacheOnUnsupportedPool,
-                HaVmRestartHostUp, ResourceCountRunningVMsonly, AllowExposeHypervisorHostname, AllowExposeHypervisorHostnameAccountLevel, SystemVmRootDiskSize,
+                HaVmRestartHostUp, HaVmRestartOnGuestShutdown, ResourceCountRunningVMsonly, AllowExposeHypervisorHostname, AllowExposeHypervisorHostnameAccountLevel, SystemVmRootDiskSize,
                 AllowExposeDomainInMetadata, MetadataCustomCloudName, VmMetadataManufacturer, VmMetadataProductName,
                 VmSyncPowerStateTransitioning, SystemVmEnableUserData
         };
@@ -5438,21 +5447,65 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         }
     }
 
+    /**
+     * Records the VMs whose host reports that the guest shut itself down, before the power state report of the same ping
+     * is processed, so that the handling of the out-of-band stop finds it.
+     */
+    protected void recordGuestShutdowns(final long hostId, final Map<String, String> vmStopReasons) {
+        if (MapUtils.isEmpty(vmStopReasons)) {
+            return;
+        }
+        for (Map.Entry<String, String> vmStopReason : vmStopReasons.entrySet()) {
+            if (!PingRoutingCommand.VM_STOP_REASON_GUEST_SHUTDOWN.equals(vmStopReason.getValue())) {
+                continue;
+            }
+            final VMInstanceVO vm = _vmDao.findVMByInstanceName(vmStopReason.getKey());
+            if (vm == null || vm.getState() != State.Running || !Objects.equals(vm.getHostId(), hostId)) {
+                continue;
+            }
+            vmInstanceDetailsDao.addDetail(vm.getId(), GUEST_SHUTDOWN_REPORTED_DETAIL, Boolean.TRUE.toString(), false);
+        }
+    }
+
+    /**
+     * Whether the host of the VM reported that the guest shut itself down; the report is used once.
+     */
+    protected boolean takeGuestShutdownReport(final VMInstanceVO vm) {
+        if (vmInstanceDetailsDao.findDetail(vm.getId(), GUEST_SHUTDOWN_REPORTED_DETAIL) == null) {
+            return false;
+        }
+        vmInstanceDetailsDao.removeDetail(vm.getId(), GUEST_SHUTDOWN_REPORTED_DETAIL);
+        return true;
+    }
+
+    protected boolean isRestartedAfterOutOfBandStop(final VMInstanceVO vm, final boolean guestShutdown) {
+        if (!(HighAvailabilityManager.ForceHA.value() || vm.isHaEnabled()) || vm.getState() != State.Running
+                || !HaVmRestartHostUp.value()
+                || vm.getHypervisorType() == HypervisorType.VMware
+                || vm.getHypervisorType() == HypervisorType.Hyperv) {
+            return false;
+        }
+        if (guestShutdown && !HaVmRestartOnGuestShutdown.valueIn(vm.getDataCenterId())) {
+            logger.info("VM {} was shut down from inside the guest, so HA does not restart it.", vm);
+            return false;
+        }
+        return true;
+    }
+
     private void handlePowerOffReportWithNoPendingJobsOnVM(final VMInstanceVO vm) {
+        final boolean guestShutdown = takeGuestShutdownReport(vm);
         switch (vm.getState()) {
         case Starting:
         case Stopping:
         case Running:
         case Stopped:
             ActionEventUtils.onActionEvent(User.UID_SYSTEM, Account.ACCOUNT_ID_SYSTEM,vm.getDomainId(),
-                    EventTypes.EVENT_VM_STOP, "Out of band VM power off", vm.getId(), getApiCommandResourceTypeForVm(vm).toString());
+                    EventTypes.EVENT_VM_STOP, guestShutdown ? "Out of band VM power off: the guest shut itself down" : "Out of band VM power off",
+                    vm.getId(), getApiCommandResourceTypeForVm(vm).toString());
         case Migrating:
             logger.info("VM {} is at {} and we received a {} report while there is no pending jobs on it"
                             , vm, vm.getState(), vm.getPowerState());
-            if((HighAvailabilityManager.ForceHA.value() || vm.isHaEnabled()) && vm.getState() == State.Running
-                    && HaVmRestartHostUp.value()
-                    && vm.getHypervisorType() != HypervisorType.VMware
-                    && vm.getHypervisorType() != HypervisorType.Hyperv) {
+            if (isRestartedAfterOutOfBandStop(vm, guestShutdown)) {
                 logger.info("Detected out-of-band stop of a HA enabled VM {}, will schedule restart.", vm);
                 if (!_haMgr.hasPendingHaWork(vm.getId())) {
                     _haMgr.scheduleRestart(vm, true);

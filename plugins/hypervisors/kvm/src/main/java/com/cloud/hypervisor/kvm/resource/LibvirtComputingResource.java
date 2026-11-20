@@ -558,6 +558,21 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
     private final LibvirtUtilitiesHelper libvirtUtilitiesHelper = new LibvirtUtilitiesHelper();
     private LibvirtDomainListener libvirtDomainListener;
 
+    /** How long the reason of a stop goes with every ping, so that one lost ping does not lose it. */
+    static final long VM_STOP_REASON_REPORT_PERIOD_IN_MS = TimeUnit.MINUTES.toMillis(10);
+    private final Map<String, Pair<String, Long>> vmStopReasons = new ConcurrentHashMap<>();
+    private final LibvirtDomainListener.VmStopRecorder vmStopRecorder = new LibvirtDomainListener.VmStopRecorder() {
+        @Override
+        public void stopped(String vmName, String reason) {
+            vmStopReasons.put(vmName, new Pair<>(reason, System.currentTimeMillis()));
+        }
+
+        @Override
+        public void started(String vmName) {
+            vmStopReasons.remove(vmName);
+        }
+    };
+
     protected Boolean enableManuallySettingCpuTopologyOnKvmVm = AgentPropertiesFileHandler.getPropertyValue(AgentProperties.ENABLE_MANUALLY_SETTING_CPU_TOPOLOGY_ON_KVM_VM);
 
     protected LibvirtDomainXMLParser parser = new LibvirtDomainXMLParser();
@@ -606,7 +621,7 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
                     LOGGER.debug("Clearing old domain listener");
                     conn.removeLifecycleListener(libvirtDomainListener);
                 }
-                libvirtDomainListener = new LibvirtDomainListener(updater);
+                libvirtDomainListener = new LibvirtDomainListener(updater, vmStopRecorder);
                 conn.addLifecycleListener(libvirtDomainListener);
                 LOGGER.debug("Set up the libvirt domain event lifecycle listener");
             } catch (LibvirtException e) {
@@ -4179,6 +4194,23 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
         return null;
     }
 
+    LibvirtDomainListener.VmStopRecorder getVmStopRecorder() {
+        return vmStopRecorder;
+    }
+
+    /**
+     * The reasons of the VM stops recorded within the report period, by VM name, or null if there are none. Older ones are forgotten.
+     */
+    Map<String, String> getRecentVmStopReasons(long now) {
+        vmStopReasons.entrySet().removeIf(entry -> now - entry.getValue().second() > VM_STOP_REASON_REPORT_PERIOD_IN_MS);
+        if (vmStopReasons.isEmpty()) {
+            return null;
+        }
+        Map<String, String> reasons = new HashMap<>();
+        vmStopReasons.forEach((vmName, reason) -> reasons.put(vmName, reason.first()));
+        return reasons;
+    }
+
     @Override
     public PingCommand getCurrentStatus(final long id) {
         PingRoutingCommand pingRoutingCommand;
@@ -4188,6 +4220,7 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
             final HashMap<String, Pair<Long, Long>> nwGrpStates = syncNetworkGroups(id);
             pingRoutingCommand = new PingRoutingWithNwGroupsCommand(getType(), id, this.getHostVmStateReport(), nwGrpStates);
         }
+        pingRoutingCommand.setVmStopReasons(getRecentVmStopReasons(System.currentTimeMillis()));
         HealthCheckResult healthCheckResult = getHostHealthCheckResult();
         if (healthCheckResult != HealthCheckResult.IGNORE) {
             pingRoutingCommand.setHostHealthCheckResult(healthCheckResult == HealthCheckResult.SUCCESS);

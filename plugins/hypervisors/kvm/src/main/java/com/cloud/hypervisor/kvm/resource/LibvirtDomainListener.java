@@ -27,10 +27,23 @@ import org.libvirt.event.StoppedDetail;
 public class LibvirtDomainListener implements LifecycleListener {
     private static final Logger LOGGER = LogManager.getLogger(LibvirtDomainListener.class);
 
+    /** Keeps the reason libvirt gave for the last stop of each domain until the domain starts again. */
+    public interface VmStopRecorder {
+        void stopped(String vmName, String reason);
+
+        void started(String vmName);
+    }
+
     private final AgentStatusUpdater agentStatusUpdater;
+    private final VmStopRecorder vmStopRecorder;
 
     public LibvirtDomainListener(AgentStatusUpdater updater) {
+        this(updater, null);
+    }
+
+    public LibvirtDomainListener(AgentStatusUpdater updater, VmStopRecorder vmStopRecorder) {
         agentStatusUpdater = updater;
+        this.vmStopRecorder = vmStopRecorder;
     }
 
     public int onLifecycleChange(Domain domain, DomainEvent domainEvent) {
@@ -43,6 +56,9 @@ public class LibvirtDomainListener implements LifecycleListener {
                          * Checking for this helps us differentiate between events where cloudstack or admin stopped the VM vs guest
                          * initiated, and avoid pushing extra updates for actions we are initiating without a need for extra tracking */
                         DomainEventDetail detail = domainEvent.getDetail();
+                        if (vmStopRecorder != null && detail != null) {
+                            vmStopRecorder.stopped(domain.getName(), detail.toString());
+                        }
                         if (StoppedDetail.SHUTDOWN.equals(detail) || StoppedDetail.CRASHED.equals(detail) || StoppedDetail.FAILED.equals(detail)) {
                             if (agentStatusUpdater != null) {
                                 LOGGER.info("Triggering out of band status update due to completed self-shutdown or crash of VM");
@@ -50,6 +66,11 @@ public class LibvirtDomainListener implements LifecycleListener {
                             }
                         } else {
                             LOGGER.debug("Event detail: " + detail);
+                        }
+                        break;
+                    case STARTED:
+                        if (vmStopRecorder != null) {
+                            vmStopRecorder.started(domain.getName());
                         }
                         break;
                     default:

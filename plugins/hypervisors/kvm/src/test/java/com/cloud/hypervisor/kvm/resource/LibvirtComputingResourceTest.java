@@ -7204,4 +7204,27 @@ public class LibvirtComputingResourceTest {
         libvirtComputingResourceSpy.defineDiskForDefaultPoolType(diskDef, volume, false, false, false, physicalDisk, DEV_ID, DISK_BUS_TYPE, DISK_BUS_TYPE_DATA, null);
         Mockito.verify(diskDef).defFileBasedDisk(PHYSICAL_DISK_PATH, DEV_ID, DISK_BUS_TYPE_DATA, DiskDef.DiskFmtType.QCOW2);
     }
+
+    @Test
+    public void testRecentVmStopReasonsAreReportedUntilTheyExpire() {
+        LibvirtComputingResource resource = new LibvirtComputingResource();
+        long now = System.currentTimeMillis();
+        resource.getVmStopRecorder().stopped("i-2-10-VM", "SHUTDOWN");
+
+        Map<String, String> reasons = resource.getRecentVmStopReasons(now);
+        assertEquals(1, reasons.size());
+        assertEquals("SHUTDOWN", reasons.get("i-2-10-VM"));
+        assertEquals("SHUTDOWN", resource.getRecentVmStopReasons(now).get("i-2-10-VM"));
+
+        assertNull(resource.getRecentVmStopReasons(now + LibvirtComputingResource.VM_STOP_REASON_REPORT_PERIOD_IN_MS + 60000));
+    }
+
+    @Test
+    public void testAStartedVmHasNoStopReason() {
+        LibvirtComputingResource resource = new LibvirtComputingResource();
+        resource.getVmStopRecorder().stopped("i-2-10-VM", "SHUTDOWN");
+        resource.getVmStopRecorder().started("i-2-10-VM");
+
+        assertNull(resource.getRecentVmStopReasons(System.currentTimeMillis()));
+    }
 }
