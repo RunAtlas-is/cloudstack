@@ -113,7 +113,8 @@ public abstract class AgentAttache {
         }
     };
 
-    protected static String LOG_SEQ_FORMATTED_STRING;
+    // Per attache: it carries this attache's host id into every Seq log line.
+    protected final String logSeqFormattedString;
 
     protected final long _id;
     protected String _uuid;
@@ -151,7 +152,7 @@ public abstract class AgentAttache {
         _requests = new LinkedList<Request>();
         _agentMgr = agentMgr;
         _nextSequence = new Long(s_rand.nextInt(Short.MAX_VALUE)).longValue() << 48;
-        LOG_SEQ_FORMATTED_STRING = String.format("Seq %d-{}: {}", _id);
+        logSeqFormattedString = String.format("Seq %d-{}: {}", _id);
     }
 
     @Override
@@ -219,7 +220,7 @@ public abstract class AgentAttache {
     }
 
     protected synchronized void cancel(final long seq) {
-        logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Cancelling.");
+        logger.debug(logSeqFormattedString, seq, "Cancelling.");
         final Listener listener = _waitForList.remove(seq);
         if (listener != null) {
             listener.processDisconnect(_id, _uuid, _name, Status.Disconnected);
@@ -239,7 +240,7 @@ public abstract class AgentAttache {
     }
 
     protected void registerListener(final long seq, final Listener listener) {
-        logger.trace(LOG_SEQ_FORMATTED_STRING, seq, "Registering listener");
+        logger.trace(logSeqFormattedString, seq, "Registering listener");
         if (listener.getTimeout() != -1) {
             s_listenerExecutor.schedule(new Alarm(seq), listener.getTimeout(), TimeUnit.SECONDS);
         }
@@ -247,7 +248,7 @@ public abstract class AgentAttache {
     }
 
     protected Listener unregisterListener(final long sequence) {
-        logger.trace(LOG_SEQ_FORMATTED_STRING, sequence, "Unregistering listener");
+        logger.trace(logSeqFormattedString, sequence, "Unregistering listener");
         return _waitForList.remove(sequence);
     }
 
@@ -310,10 +311,10 @@ public abstract class AgentAttache {
                 if (answers[0] != null && answers[0].getResult()) {
                     processed = true;
                 }
-                logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Unable to find listener.");
+                logger.debug(logSeqFormattedString, seq, "Unable to find listener.");
             } else {
                 processed = monitor.processAnswers(_id, seq, answers);
-                logger.trace(LOG_SEQ_FORMATTED_STRING, seq, (processed ? "" : " did not ") + " processed ");
+                logger.trace(logSeqFormattedString, seq, (processed ? "" : " did not ") + " processed ");
                 if (!monitor.isRecurring()) {
                     unregisterListener(seq);
                 }
@@ -339,7 +340,7 @@ public abstract class AgentAttache {
                 final Map.Entry<Long, Listener> entry = it.next();
                 it.remove();
                 final Listener monitor = entry.getValue();
-                logger.debug(LOG_SEQ_FORMATTED_STRING, entry.getKey(), "Sending disconnect to " + monitor.getClass());
+                logger.debug(logSeqFormattedString, entry.getKey(), "Sending disconnect to " + monitor.getClass());
                 monitor.processDisconnect(_id,  _uuid, _name, state);
             }
         }
@@ -371,7 +372,7 @@ public abstract class AgentAttache {
         if (listener != null) {
             registerListener(seq, listener);
         }
-        logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Routed from " + req.getManagementServerId());
+        logger.debug(logSeqFormattedString, seq, "Routed from " + req.getManagementServerId());
 
         synchronized (this) {
             try {
@@ -393,14 +394,14 @@ public abstract class AgentAttache {
 
                 if (req.executeInSequence() && _currentSequence == null) {
                     _currentSequence = seq;
-                    logger.trace(LOG_SEQ_FORMATTED_STRING, seq, " is current sequence");
+                    logger.trace(logSeqFormattedString, seq, " is current sequence");
                 }
             } catch (AgentUnavailableException e) {
-                logger.info(LOG_SEQ_FORMATTED_STRING, seq, "Unable to send due to " + e.getMessage());
+                logger.info(logSeqFormattedString, seq, "Unable to send due to " + e.getMessage());
                 cancel(seq);
                 throw e;
             } catch (Exception e) {
-                logger.warn(LOG_SEQ_FORMATTED_STRING, seq, "Unable to send due to " + e.getMessage(), e);
+                logger.warn(logSeqFormattedString, seq, "Unable to send due to " + e.getMessage(), e);
                 cancel(seq);
                 throw new AgentUnavailableException("Problem due to other exception " + e.getMessage(), _id);
             }
@@ -425,7 +426,7 @@ public abstract class AgentAttache {
                     try {
                         answers = sl.waitFor(wait);
                     } catch (final InterruptedException e) {
-                        logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Interrupted");
+                        logger.debug(logSeqFormattedString, seq, "Interrupted");
                     }
                 }
                 if (answers != null) {
@@ -443,18 +444,18 @@ public abstract class AgentAttache {
 
                 final Long current = _currentSequence;
                 if (current != null && seq != current) {
-                    logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Waited too long.");
+                    logger.debug(logSeqFormattedString, seq, "Waited too long.");
 
                     _agentMgr.updateReconcileCommandsIfNeeded(req.getSequence(), req.getCommands(), Command.State.TIMED_OUT);
                     throw new OperationTimedoutException(req.getCommands(), _id, seq, wait, false);
                 }
-                logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Waiting some more time because this is the current command");
+                logger.debug(logSeqFormattedString, seq, "Waiting some more time because this is the current command");
             }
 
             _agentMgr.updateReconcileCommandsIfNeeded(req.getSequence(), req.getCommands(), Command.State.TIMED_OUT);
             throw new OperationTimedoutException(req.getCommands(), _id, seq, wait * 2, true);
         } catch (OperationTimedoutException e) {
-            logger.warn(LOG_SEQ_FORMATTED_STRING, seq, "Timed out on " + req.toString());
+            logger.warn(logSeqFormattedString, seq, "Timed out on " + req.toString());
             cancel(seq);
             final Long current = _currentSequence;
             if (req.executeInSequence() && (current != null && current == seq)) {
@@ -462,7 +463,7 @@ public abstract class AgentAttache {
             }
             throw e;
         } catch (Exception e) {
-            logger.warn(LOG_SEQ_FORMATTED_STRING, seq, "Exception while waiting for answer", e);
+            logger.warn(logSeqFormattedString, seq, "Exception while waiting for answer", e);
             cancel(seq);
             final Long current = _currentSequence;
             if (req.executeInSequence() && (current != null && current == seq)) {
@@ -488,7 +489,7 @@ public abstract class AgentAttache {
             try {
                 answers = sl.waitFor(waitTime);
             } catch (final InterruptedException e) {
-                logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Interrupted");
+                logger.debug(logSeqFormattedString, seq, "Interrupted");
             }
             if (answers != null) {
                 break;
@@ -502,10 +503,10 @@ public abstract class AgentAttache {
             }
             Command.State state = commandInfo.first();
             if (Command.State.INTERRUPTED.equals(state)) {
-                logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Interrupted by agent, will reconcile it");
+                logger.debug(logSeqFormattedString, seq, "Interrupted by agent, will reconcile it");
                 throw new CloudRuntimeException("Interrupted by agent");
             } else if (Command.State.DANGLED_IN_BACKEND.equals(state)) {
-                logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "Dangling in backend, it seems the agent was restarted, will reconcile it");
+                logger.debug(logSeqFormattedString, seq, "Dangling in backend, it seems the agent was restarted, will reconcile it");
                 throw new CloudRuntimeException("It is not being processed by agent");
             }
             Answer answer = commandInfo.second();
@@ -522,16 +523,16 @@ public abstract class AgentAttache {
     protected synchronized void sendNext(final long seq) {
         _currentSequence = null;
         if (_requests.isEmpty()) {
-            logger.debug(LOG_SEQ_FORMATTED_STRING, seq, "No more commands found");
+            logger.debug(logSeqFormattedString, seq, "No more commands found");
             return;
         }
 
         Request req = _requests.pop();
-        logger.debug(LOG_SEQ_FORMATTED_STRING, req.getSequence(), "Sending now.  is current sequence.");
+        logger.debug(logSeqFormattedString, req.getSequence(), "Sending now.  is current sequence.");
         try {
             send(req);
         } catch (AgentUnavailableException e) {
-            logger.debug(LOG_SEQ_FORMATTED_STRING, req.getSequence(), "Unable to send the next sequence");
+            logger.debug(logSeqFormattedString, req.getSequence(), "Unable to send the next sequence");
             cancel(req.getSequence());
         }
         _currentSequence = req.getSequence();
