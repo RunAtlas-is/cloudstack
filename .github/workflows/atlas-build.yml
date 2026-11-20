@@ -19,6 +19,12 @@
 # the encrypted signed apt repository and the management server image of a release tag
 # (<cloudstack version>-atlas-<n>, for example 4.22.1.1-atlas-1). The branding keeps the CloudStack version: the
 # management server reads only the part before the first hyphen.
+#
+# The packages and images are public. Each job runs the release scan
+# (packaging/atlas-release-scan) on what it built before any step publishes
+# it, and a finding fails the job. The scan reads the repository secret
+# RELEASE_SCAN_DENYLIST, literal values of the environment one per line, and
+# fails when it is empty.
 
 name: Atlas build
 
@@ -100,6 +106,16 @@ jobs:
           if [ "$REF_TYPE" = tag ]; then version="$REF_NAME"; else version="dev-$RUN_NUMBER"; fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           docker build --pull -t "$IMAGE:$version" -f packaging/atlas-container/Containerfile.lifecycle packaging/atlas-container
+      - name: Scan the image before it is published
+        env:
+          VERSION: ${{ steps.build.outputs.version }}
+          RELEASE_SCAN_DENYLIST: ${{ secrets.RELEASE_SCAN_DENYLIST }}
+        run: |
+          bash packaging/atlas-release-scan/install-gitleaks.sh "$RUNNER_TEMP/gitleaks"
+          docker save -o "$RUNNER_TEMP/image.tar" "$IMAGE:$VERSION"
+          python3 -I packaging/atlas-release-scan/scan.py --require-denylist \
+            --gitleaks "$RUNNER_TEMP/gitleaks/gitleaks" image "$RUNNER_TEMP/image.tar"
+          rm "$RUNNER_TEMP/image.tar"
       - name: Push the image
         id: push
         env:
@@ -136,7 +152,8 @@ jobs:
         run: |
           sum="$(sha256sum packaging/atlas-container/Containerfile.builder)"
           echo "image=$IMAGE:${sum:0:16}" >> "$GITHUB_OUTPUT"
-      - name: Build and push the builder image unless that definition is already pushed
+      - name: Check whether that definition is already pushed
+        id: pushed
         env:
           IMAGE_REF: ${{ steps.tag.outputs.image }}
           GH_TOKEN: ${{ github.token }}
@@ -145,10 +162,31 @@ jobs:
           echo "$GH_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
           if docker manifest inspect "$IMAGE_REF" >/dev/null 2>&1; then
             echo "already pushed: $IMAGE_REF"
-            exit 0
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
           fi
-          docker build --pull -t "$IMAGE_REF" -f packaging/atlas-container/Containerfile.builder packaging/atlas-container
-          docker push "$IMAGE_REF"
+      - name: Build the builder image
+        if: steps.pushed.outputs.pushed == 'false'
+        env:
+          IMAGE_REF: ${{ steps.tag.outputs.image }}
+        run: docker build --pull -t "$IMAGE_REF" -f packaging/atlas-container/Containerfile.builder packaging/atlas-container
+      - name: Scan the builder image before it is published
+        if: steps.pushed.outputs.pushed == 'false'
+        env:
+          IMAGE_REF: ${{ steps.tag.outputs.image }}
+          RELEASE_SCAN_DENYLIST: ${{ secrets.RELEASE_SCAN_DENYLIST }}
+        run: |
+          bash packaging/atlas-release-scan/install-gitleaks.sh "$RUNNER_TEMP/gitleaks"
+          docker save -o "$RUNNER_TEMP/image.tar" "$IMAGE_REF"
+          python3 -I packaging/atlas-release-scan/scan.py --require-denylist \
+            --gitleaks "$RUNNER_TEMP/gitleaks/gitleaks" image "$RUNNER_TEMP/image.tar"
+          rm "$RUNNER_TEMP/image.tar"
+      - name: Push the builder image
+        if: steps.pushed.outputs.pushed == 'false'
+        env:
+          IMAGE_REF: ${{ steps.tag.outputs.image }}
+        run: docker push "$IMAGE_REF"
 
   packages:
     if: github.event_name != 'pull_request'
@@ -199,6 +237,13 @@ jobs:
           mkdir -p dist
           bash packaging/build-deb.sh --brand "$BRAND" -o "$PWD/dist"
           cd dist && sha256sum -- *.deb > SHA256SUMS && cat SHA256SUMS
+      - name: Scan the packages before they are published
+        env:
+          RELEASE_SCAN_DENYLIST: ${{ secrets.RELEASE_SCAN_DENYLIST }}
+        run: |
+          bash packaging/atlas-release-scan/install-gitleaks.sh "$RUNNER_TEMP/gitleaks"
+          python3 -I packaging/atlas-release-scan/scan.py --require-denylist \
+            --gitleaks "$RUNNER_TEMP/gitleaks/gitleaks" dir dist
       - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-path: 'dist/*.deb'
@@ -268,6 +313,16 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           cp dist/cloudstack-common_*.deb dist/cloudstack-management_*.deb dist/cloudstack-ui_*.deb packaging/atlas-container/
           docker build --pull -t "$IMAGE:$version" -f packaging/atlas-container/Containerfile packaging/atlas-container
+      - name: Scan the image before it is published
+        env:
+          VERSION: ${{ steps.build.outputs.version }}
+          RELEASE_SCAN_DENYLIST: ${{ secrets.RELEASE_SCAN_DENYLIST }}
+        run: |
+          bash packaging/atlas-release-scan/install-gitleaks.sh "$RUNNER_TEMP/gitleaks"
+          docker save -o "$RUNNER_TEMP/image.tar" "$IMAGE:$VERSION"
+          python3 -I packaging/atlas-release-scan/scan.py --require-denylist \
+            --gitleaks "$RUNNER_TEMP/gitleaks/gitleaks" image "$RUNNER_TEMP/image.tar"
+          rm "$RUNNER_TEMP/image.tar"
       - name: Push the image
         id: push
         env:
