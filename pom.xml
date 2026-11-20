@@ -1035,6 +1035,7 @@
                             <exclude>.metadata/**</exclude>
                             <exclude>.git/**</exclude>
                             <exclude>.github/linters/codespell.txt</exclude>
+                            <exclude>packaging/atlas-apt/*.asc</exclude>
                             <exclude>.gitignore</exclude>
                             <exclude>.markdownlintignore</exclude>
                             <exclude>CHANGES.md</exclude>
