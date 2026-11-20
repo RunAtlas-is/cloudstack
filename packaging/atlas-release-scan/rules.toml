@@ -1,0 +1,82 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# Rules of the release scan (scan.py), on top of gitleaks' default rules.
+# Values that upstream and third-party content already carries are allowed
+# by baseline.tsv, not here.
+
+[extend]
+useDefault = true
+
+# The generic rule reads an assignment such as key = "value", which source
+# and configuration text has and the strings of a compiled class or binary
+# do not: there it only joins unrelated constants.
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Strings of compiled and binary files"
+paths = ['''/binary-strings/''']
+
+[[rules]]
+id = "private-key-material"
+description = "Key material after a private key header"
+regex = '''-----BEGIN[ A-Z0-9_-]{0,100}PRIVATE KEY(?: BLOCK)?-----\s*([A-Za-z0-9+/=\s]{40,200})'''
+secretGroup = 1
+keywords = ["private key"]
+
+[[rules]]
+id = "rfc1918-address"
+description = "Private IPv4 address"
+regex = '''(?:^|[^0-9.])((?:10\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d))(?:\.?[^0-9.]|\.?$)'''
+secretGroup = 1
+keywords = ["10.", "172.", "192.168."]
+
+[[rules.allowlists]]
+description = "Package metadata that dpkg and apt write from the Ubuntu archive"
+paths = ['''/package-metadata/''']
+
+[[rules]]
+id = "home-path"
+description = "Home directory path other than the CI runner's"
+regex = '''/home/([a-z_][a-z0-9_.-]{0,31})'''
+secretGroup = 1
+keywords = ["/home/"]
+
+[[rules.allowlists]]
+description = "The GitHub-hosted runner's home"
+regexTarget = "secret"
+regexes = ['''^runner$''']
+
+[[rules.allowlists]]
+description = "Package metadata that dpkg and apt write from the Ubuntu archive"
+paths = ['''/package-metadata/''']
+
+[[rules]]
+id = "email-address"
+description = "Email address outside upstream's domain"
+regex = '''[a-zA-Z0-9][a-zA-Z0-9._%+-]{0,63}@(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,24}'''
+keywords = ["@"]
+
+[[rules.allowlists]]
+description = "Upstream's own addresses"
+regexTarget = "secret"
+regexes = ['''(?i)@(?:[a-z0-9-]+\.)*apache\.org$''']
+
+[[rules.allowlists]]
+description = "Package metadata that dpkg and apt write from the Ubuntu archive"
+paths = ['''/package-metadata/''']
