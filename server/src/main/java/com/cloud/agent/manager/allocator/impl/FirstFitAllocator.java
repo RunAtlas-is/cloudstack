@@ -441,7 +441,12 @@ public class FirstFitAllocator extends AdapterBase implements HostAllocator {
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (e1, e2) -> e1, LinkedHashMap::new));
     }
 
-    private List<? extends Host> reorderHostsByNumberOfVms(DeploymentPlan plan, List<? extends Host> hosts, Account account) {
+    /**
+     * Orders the hosts by the number of the account's running VMs on each, fewest first. Hosts with
+     * the same count are ordered by their free share of memory, most first, so an account with no VMs
+     * yet does not always land on the same host.
+     */
+    protected List<? extends Host> reorderHostsByNumberOfVms(DeploymentPlan plan, List<? extends Host> hosts, Account account) {
         if (account == null) {
             return hosts;
         }
@@ -449,25 +454,23 @@ public class FirstFitAllocator extends AdapterBase implements HostAllocator {
         Long podId = plan.getPodId();
         Long clusterId = plan.getClusterId();
 
-        List<Long> hostIdsByVmCount = _vmInstanceDao.listHostIdsByVmCount(dcId, podId, clusterId, account.getAccountId());
-        if (logger.isDebugEnabled()) {
-            logger.debug("List of hosts in ascending order of number of VMs: " + hostIdsByVmCount);
+        Map<Long, Long> vmCountByHost = new HashMap<>();
+        for (Pair<Long, Long> hostAndCount : _vmInstanceDao.listHostIdsAndVmCount(dcId, podId, clusterId, account.getAccountId())) {
+            vmCountByHost.put(hostAndCount.first(), hostAndCount.second());
         }
-
-        //now filter the given list of Hosts by this ordered list
-        Map<Long, Host> hostMap = new HashMap<>();
-        for (Host host : hosts) {
-            hostMap.put(host.getId(), host);
-        }
-        List<Long> matchingHostIds = new ArrayList<>(hostMap.keySet());
-
-        hostIdsByVmCount.retainAll(matchingHostIds);
+        Map<Long, Double> freeMemoryByHost = _capacityDao.orderHostsByFreeCapacity(dcId, clusterId, Capacity.CAPACITY_TYPE_MEMORY).second();
 
         List<Host> reorderedHosts = new ArrayList<>();
-        for (Long id : hostIdsByVmCount) {
-            reorderedHosts.add(hostMap.get(id));
+        for (Host host : hosts) {
+            if (vmCountByHost.containsKey(host.getId())) {
+                reorderedHosts.add(host);
+            }
         }
-
+        reorderedHosts.sort(Comparator.<Host>comparingLong(host -> vmCountByHost.get(host.getId()))
+                .thenComparing(host -> freeMemoryByHost.getOrDefault(host.getId(), 0.0), Comparator.reverseOrder()));
+        if (logger.isDebugEnabled()) {
+            logger.debug("Hosts by number of the account's VMs, then free memory: {}", reorderedHosts);
+        }
         return reorderedHosts;
     }
 

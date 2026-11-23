@@ -18,8 +18,10 @@
 
 package com.cloud.agent.manager.allocator.impl;
 
+import com.cloud.capacity.Capacity;
 import com.cloud.capacity.CapacityManager;
 import com.cloud.capacity.CapacityVO;
+import com.cloud.capacity.dao.CapacityDao;
 import com.cloud.deploy.DeploymentPlan;
 import com.cloud.deploy.DeploymentPlanner;
 import com.cloud.host.Host;
@@ -29,6 +31,7 @@ import com.cloud.service.dao.ServiceOfferingDetailsDao;
 import com.cloud.user.Account;
 import com.cloud.utils.Pair;
 import com.cloud.vm.VirtualMachineProfile;
+import com.cloud.vm.dao.VMInstanceDao;
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
 import org.junit.Assert;
 import org.junit.Before;
@@ -227,5 +230,71 @@ public class FirstFitAllocatorTest {
         when(memCapacity2.getUsedCapacity()).thenReturn(1073741824L);
         when(memCapacity1.getCapacityType()).thenReturn(CapacityVO.CAPACITY_TYPE_MEMORY);
         return Arrays.asList(cpuCapacity1, memCapacity1, cpuCapacity2, memCapacity2);
+    }
+
+    private Host hostWithId(long id) {
+        Host host = mock(Host.class);
+        when(host.getId()).thenReturn(id);
+        return host;
+    }
+
+    private List<Long> idsOf(List<? extends Host> hosts) {
+        return hosts.stream().map(Host::getId).collect(java.util.stream.Collectors.toList());
+    }
+
+    private void givenAccountVmsAndFreeMemory(List<Pair<Long, Long>> vmCounts, Map<Long, Double> freeMemory) {
+        VMInstanceDao vmInstanceDao = mock(VMInstanceDao.class);
+        CapacityDao capacityDao = mock(CapacityDao.class);
+        allocator._vmInstanceDao = vmInstanceDao;
+        allocator._capacityDao = capacityDao;
+        when(account.getAccountId()).thenReturn(7L);
+        when(vmInstanceDao.listHostIdsAndVmCount(eq(1L), any(), any(), eq(7L))).thenReturn(vmCounts);
+        when(capacityDao.orderHostsByFreeCapacity(any(), any(), eq(Capacity.CAPACITY_TYPE_MEMORY)))
+                .thenReturn(new Pair<>(new java.util.ArrayList<>(freeMemory.keySet()), freeMemory));
+    }
+
+    @Test
+    public void testUserDispersingBreaksEqualCountsByFreeMemory() {
+        // An account with no VMs yet: every host counts zero, and the database returns them in id order.
+        Map<Long, Double> freeMemory = new HashMap<>();
+        freeMemory.put(1L, 0.2);
+        freeMemory.put(2L, 0.6);
+        freeMemory.put(3L, 0.4);
+        givenAccountVmsAndFreeMemory(Arrays.asList(new Pair<>(1L, 0L), new Pair<>(2L, 0L), new Pair<>(3L, 0L)), freeMemory);
+
+        List<? extends Host> ordered = allocator.reorderHostsByNumberOfVms(plan, Arrays.asList(hostWithId(1L), hostWithId(2L), hostWithId(3L)), account);
+
+        assertEquals(Arrays.asList(2L, 3L, 1L), idsOf(ordered));
+    }
+
+    @Test
+    public void testUserDispersingPutsFewerAccountVmsBeforeMoreFreeMemory() {
+        // Three control-plane VMs of one account: the host already holding one comes last, however empty it is.
+        Map<Long, Double> freeMemory = new HashMap<>();
+        freeMemory.put(1L, 0.9);
+        freeMemory.put(2L, 0.1);
+        freeMemory.put(3L, 0.3);
+        givenAccountVmsAndFreeMemory(Arrays.asList(new Pair<>(2L, 0L), new Pair<>(3L, 0L), new Pair<>(1L, 1L)), freeMemory);
+
+        List<? extends Host> ordered = allocator.reorderHostsByNumberOfVms(plan, Arrays.asList(hostWithId(1L), hostWithId(2L), hostWithId(3L)), account);
+
+        assertEquals(Arrays.asList(3L, 2L, 1L), idsOf(ordered));
+    }
+
+    @Test
+    public void testUserDispersingKeepsOnlyCountedCandidates() {
+        Map<Long, Double> freeMemory = new HashMap<>();
+        freeMemory.put(1L, 0.5);
+        givenAccountVmsAndFreeMemory(Arrays.asList(new Pair<>(1L, 0L), new Pair<>(9L, 0L)), freeMemory);
+
+        List<? extends Host> ordered = allocator.reorderHostsByNumberOfVms(plan, Arrays.asList(hostWithId(1L), hostWithId(5L)), account);
+
+        assertEquals(Arrays.asList(1L), idsOf(ordered));
+    }
+
+    @Test
+    public void testUserDispersingWithoutAccountKeepsOrder() {
+        List<Host> hosts = Arrays.asList(hostWithId(2L), hostWithId(1L));
+        assertEquals(hosts, allocator.reorderHostsByNumberOfVms(plan, hosts, null));
     }
 }
