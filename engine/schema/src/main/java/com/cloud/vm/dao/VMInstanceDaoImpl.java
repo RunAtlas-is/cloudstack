@@ -797,9 +797,18 @@ public class VMInstanceDaoImpl extends GenericDaoBase<VMInstanceVO, Long> implem
 
     @Override
     public List<Long> listHostIdsByVmCount(long dcId, Long podId, Long clusterId, long accountId) {
+        List<Long> result = new ArrayList<Long>();
+        for (Pair<Long, Long> hostAndCount : listHostIdsAndVmCount(dcId, podId, clusterId, accountId)) {
+            result.add(hostAndCount.first());
+        }
+        return result;
+    }
+
+    @Override
+    public List<Pair<Long, Long>> listHostIdsAndVmCount(long dcId, Long podId, Long clusterId, long accountId) {
         TransactionLegacy txn = TransactionLegacy.currentTxn();
         PreparedStatement pstmt = null;
-        List<Long> result = new ArrayList<Long>();
+        List<Pair<Long, Long>> result = new ArrayList<>();
         try {
             String sql = ORDER_HOSTS_NUMBER_OF_VMS_FOR_ACCOUNT;
             if (podId != null) {
@@ -813,24 +822,25 @@ public class VMInstanceDaoImpl extends GenericDaoBase<VMInstanceVO, Long> implem
             sql = sql + ORDER_HOSTS_NUMBER_OF_VMS_FOR_ACCOUNT_PART2;
 
             pstmt = txn.prepareAutoCloseStatement(sql);
-            pstmt.setLong(1, accountId);
-            pstmt.setLong(2, dcId);
+            int index = 1;
+            pstmt.setLong(index++, accountId);
+            pstmt.setLong(index++, dcId);
             if (podId != null) {
-                pstmt.setLong(3, podId);
+                pstmt.setLong(index++, podId);
             }
             if (clusterId != null) {
-                pstmt.setLong(4, clusterId);
+                pstmt.setLong(index, clusterId);
             }
 
             ResultSet rs = pstmt.executeQuery();
             while (rs.next()) {
-                result.add(rs.getLong(1));
+                result.add(new Pair<>(rs.getLong(1), rs.getLong(2)));
             }
             return result;
         } catch (SQLException e) {
-            throw new CloudRuntimeException("DB Exception on: " + ORDER_PODS_NUMBER_OF_VMS_FOR_ACCOUNT, e);
+            throw new CloudRuntimeException("DB Exception on: " + ORDER_HOSTS_NUMBER_OF_VMS_FOR_ACCOUNT, e);
         } catch (Throwable e) {
-            throw new CloudRuntimeException("Caught: " + ORDER_PODS_NUMBER_OF_VMS_FOR_ACCOUNT, e);
+            throw new CloudRuntimeException("Caught: " + ORDER_HOSTS_NUMBER_OF_VMS_FOR_ACCOUNT, e);
         }
     }
 
